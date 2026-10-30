@@ -1,4 +1,6 @@
-# rcf-sword
+# rcf-sword.el - Bible Study Tools for Emacs
+
+[![CI](https://github.com/RyanFleck/rcf-sword/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/RyanFleck/rcf-sword/actions/workflows/ci.yml)
 
 Emacs package for reading the Bible from a local SQLite (`.bblx`) file.
 
