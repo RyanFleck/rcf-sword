@@ -1,0 +1,3 @@
+(rcf-sword :fetcher github
+           :repo "RyanFleck/rcf-sword"
+           :files ("rcf-sword.el"))

@@ -15,3 +15,6 @@ dist/
 
 # Undo-tree save-files
 *.~undo-tree
+
+# Local package dir used by the Makefile
+.elpa/
