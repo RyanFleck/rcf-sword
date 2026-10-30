@@ -15,6 +15,7 @@
 
 (require 'ert)
 (require 'rcf-sword)
+(require 'bookmark)
 
 ;;;; Fixture
 
@@ -23,34 +24,94 @@
   '((1 1 1 " In the beginning God created the heaven and the earth.")
     (1 1 2 " And the earth was without form, and void;{\\cf2\\super [1]} and darkness was upon the face of the deep.")
     (1 1 3 " And God said, Let there be light: and there was light.")
+    (19 1 1 " Blessed is the man that walketh not in the counsel of the ungodly, nor standeth in the way of sinners, nor sitteth in the seat of the scornful.")
+    (19 2 1 " Why do the heathen rage, and the people imagine a vain thing?")
     (19 23 1 " The LORD is my shepherd; I shall not want.")
     (19 23 2 " He maketh me to lie down in green pastures: he leadeth me beside the still waters.")
     (19 23 3 " He restoreth my soul: he leadeth me in the paths of righteousness for his name's sake.")
-    (20 1 1 " The proverbs of Solomon the son of David, king of Israel;"))
+    (20 1 1 " The proverbs of Solomon the son of David, king of Israel;")
+    ;; Book 67 isn't in the default `rcf-sword-books', like an apocryphal
+    ;; book in some modules.
+    (67 1 1 " The book of the words of Tobit."))
   "Verses inserted into the fixture database.")
+
+(defun rcf-sword-test--make-db (name abbreviation verses)
+  "Return a new temporary .bblx file for translation NAME (ABBREVIATION).
+It contains VERSES, a list of (BOOK CHAPTER VERSE TEXT)."
+  (let* ((file (make-temp-file "rcf-sword-test" nil ".bblx"))
+         (db (sqlite-open file)))
+    (sqlite-execute db "CREATE TABLE Bible (Book INT, Chapter INT, Verse INT, Scripture TEXT);")
+    (sqlite-execute db "CREATE TABLE Details (Description TEXT, Abbreviation TEXT);")
+    (sqlite-execute db "INSERT INTO Details VALUES (?, ?);" (list name abbreviation))
+    (dolist (verse verses)
+      (sqlite-execute db "INSERT INTO Bible VALUES (?, ?, ?, ?);" verse))
+    (sqlite-close db)
+    file))
 
 (defmacro rcf-sword-test--with-db (&rest body)
   "Run BODY with `rcf-sword-bblx-file' bound to a fixture database."
   (declare (indent 0) (debug t))
-  `(let* ((file (make-temp-file "rcf-sword-test" nil ".bblx"))
+  `(let* ((file (rcf-sword-test--make-db "King James Version" "KJV"
+                                         rcf-sword-test--verses))
           (rcf-sword-bblx-file file))
      (unwind-protect
          (progn
-           (let ((db (sqlite-open file)))
-             (sqlite-execute db "CREATE TABLE Bible (Book INT, Chapter INT, Verse INT, Scripture TEXT);")
-             (sqlite-execute db "CREATE TABLE Details (Description TEXT, Abbreviation TEXT);")
-             (sqlite-execute db "INSERT INTO Details VALUES ('King James Version', 'KJV');")
-             (dolist (verse rcf-sword-test--verses)
-               (sqlite-execute db "INSERT INTO Bible VALUES (?, ?, ?, ?);" verse))
-             (sqlite-close db))
            (rcf-sword-close-database)
            ,@body)
        (rcf-sword-close-database)
        (delete-file file))))
 
-;;;; Pure functions
+(defun rcf-sword-test--user-error (function &rest args)
+  "Call FUNCTION with ARGS and return its `user-error' message, or nil."
+  (condition-case err
+      (progn (apply function args) nil)
+    (user-error (error-message-string err))))
+
+;;;; Loading and packaging
+
+(ert-deftest rcf-sword-test-loading-has-no-side-effects ()
+  "Loading rcf-sword opens no database and loads no optional packages.
+This runs in a fresh Emacs, because this one has loaded Org,
+markdown-mode and more for other tests."
+  (let ((dir (file-name-directory (locate-library "rcf-sword"))))
+    (with-temp-buffer
+      (call-process (expand-file-name invocation-name invocation-directory)
+                    nil '(t nil) nil "-Q" "--batch" "-L" dir "--eval"
+                    (prin1-to-string
+                     '(progn (require 'rcf-sword)
+                             (prin1 (list rcf-sword--db (featurep 'org)
+                                          (featurep 'markdown-mode)
+                                          (featurep 'olivetti)
+                                          (featurep 'bookmark))))))
+      (should (equal (buffer-string) "(nil nil nil nil nil)")))))
+
+(ert-deftest rcf-sword-test-no-third-party-dependencies ()
+  "rcf-sword needs nothing beyond Emacs: s.el is never loaded."
+  ;; The package only uses built-in libraries, so it installs on a vanilla
+  ;; Emacs.  The Makefile doesn't install s.el, so a stray s- call would
+  ;; also fail byte-compilation.
+  (should-not (featurep 's)))
+
+(ert-deftest rcf-sword-test-command-map-and-menu ()
+  "The prefix keymap and the transient menu offer the same commands."
+  ;; The prefix map and the menu offer the same commands on the same keys.
+  ;; It's a prefix command, so `keymap-global-set' can bind the symbol.
+  (should (keymapp (symbol-function 'rcf-sword-command-map)))
+  (should (eq (keymap-lookup rcf-sword-command-map "i") #'rcf-sword-insert-verse))
+  (should (commandp #'rcf-sword-menu))
+  (map-keymap
+   (lambda (key command)
+     (should (commandp command))
+     (unless (eq command #'rcf-sword-menu)
+       ;; The menu's entry for KEY runs the same COMMAND.
+       (should (memq command (flatten-tree (transient-get-suffix
+                                            'rcf-sword-menu (string key)))))))
+   rcf-sword-command-map))
+
+;;;; Books
 
 (ert-deftest rcf-sword-test-find-book ()
+  "Book names match by prefix first, then substring, ignoring case."
   (should (equal (rcf-sword--book-number "Gen") 1))
   (should (equal (rcf-sword--book-number "gen") 1))
   (should (equal (rcf-sword--book-number "Lam") 25))
@@ -66,132 +127,93 @@
   (should-not (rcf-sword--book-number "."))
   (should-not (rcf-sword--book-number "Gen.*")))
 
+(ert-deftest rcf-sword-test-book-aliases ()
+  "Abbreviations and ordinals (\"Jn\", \"I John\") find the right book."
+  ;; Common abbreviations that prefix and substring matching miss.
+  (pcase-dolist (`(,partial ,number)
+                 '(("Jn" 43) ("jn" 43) ("Mt" 40) ("Mk" 41) ("Lk" 42)
+                   ("Jas" 59) ("Phlm" 57) ("Rv" 66) ("Revelations" 66)
+                   ("song of songs" 22) ("Canticles" 22) ("Qoh" 21)
+                   ;; Ordinals in any form, with or without an alias.
+                   ("1 Jn" 62) ("I John" 62) ("First John" 62) ("1st Jn" 62)
+                   ("II Kings" 12) ("III Jn" 64) ("2 Tm" 55) ("1 Pt" 60)
+                   ;; Existing matches are unaffected.
+                   ("Is" 23) ("Phil" 50) ("Jud" 7) ("1 Cor" 46)))
+    (should (equal (cons partial (rcf-sword--book-number partial))
+                   (cons partial number))))
+  ;; Every alias must resolve to a book.
+  (pcase-dolist (`(,alias . ,_) rcf-sword-book-aliases)
+    (should (rcf-sword--find-book alias))))
+
 (ert-deftest rcf-sword-test-book-numbers-are-sequential ()
+  "The default `rcf-sword-books' numbers the 66 books 1 to 66."
   (should (equal (mapcar #'cadr rcf-sword-books) (number-sequence 1 66))))
 
-(ert-deftest rcf-sword-test-parse-reference ()
-  (should (equal (rcf-sword--parse-reference "Genesis 6") '("Genesis" 6 nil)))
-  (should (equal (rcf-sword--parse-reference "Genesis 6:1") '("Genesis" 6 (1))))
-  (should (equal (rcf-sword--parse-reference "Genesis 6:1-2") '("Genesis" 6 (1 2))))
-  (should (equal (rcf-sword--parse-reference "  1 Cor 13:4-7 ") '("1 Cor" 13 (4 7))))
-  (should (equal (rcf-sword--parse-reference "Song  of Solomon 2") '("Song of Solomon" 2 nil)))
-  (should (equal (rcf-sword--parse-reference "Jude") '("" 0 nil))))
+(ert-deftest rcf-sword-test-other-canons-and-languages ()
+  "Extra and renamed books in `rcf-sword-books' work everywhere."
+  (rcf-sword-test--with-db
+    (with-temp-buffer
+      ;; A book missing from `rcf-sword-books' still gets a label.
+      (rcf-sword--insert-passage (rcf-sword--span-verses 67 1 1 1 1))
+      (should (string-suffix-p " -- Book 67 1:1 KJV" (buffer-string)))
+      ;; Adding it to the list makes it a normal book.
+      (let ((rcf-sword-books (append rcf-sword-books '((3 67 "Tobit")))))
+        (erase-buffer)
+        (rcf-sword-insert-verse "Tob 1:1")
+        (should (string-suffix-p " -- Tobit 1:1 KJV" (buffer-string))))
+      ;; Renamed books are matched and labelled by their new names, and
+      ;; the random proverb doesn't depend on the English name.
+      (let ((rcf-sword-books
+             (mapcar (lambda (book)
+                       (pcase (nth 1 book)
+                         (19 '(1 19 "Psalmen"))
+                         (20 '(1 20 "Sprüche"))
+                         (_ book)))
+                     rcf-sword-books)))
+        (erase-buffer)
+        (rcf-sword-insert-verse "Psalmen 23:1")
+        (should (string-suffix-p " -- Psalmen 23:1 KJV" (buffer-string)))
+        (erase-buffer)
+        (rcf-sword-insert-random-proverb)
+        (should (string-suffix-p " -- Sprüche 1:1 KJV" (buffer-string)))))))
 
-(ert-deftest rcf-sword-test-superscript ()
-  (should (equal (rcf-sword--superscript 0) "⁰"))
-  (should (equal (rcf-sword--superscript 123) "¹²³"))
-  (should (equal (rcf-sword--superscript 4567890) "⁴⁵⁶⁷⁸⁹⁰")))
-
-(ert-deftest rcf-sword-test-continuation ()
-  (should (rcf-sword--start-is-continuation-p "and darkness"))
-  (should (rcf-sword--start-is-continuation-p "And darkness"))
-  (should (rcf-sword--start-is-continuation-p "whoever believes"))
-  (should-not (rcf-sword--start-is-continuation-p "Then God said"))
-  (should-not (rcf-sword--start-is-continuation-p "\"Let there be light\""))
-  (should-not (rcf-sword--start-is-continuation-p ""))
-  (should (rcf-sword--end-is-continuation-p "begotten Son,"))
-  (should (rcf-sword--end-is-continuation-p "of Israel:"))
-  (should-not (rcf-sword--end-is-continuation-p "and the earth.")))
-
-(ert-deftest rcf-sword-test-loading-has-no-side-effects ()
-  (should-not rcf-sword--db))
-
-(ert-deftest rcf-sword-test-no-third-party-dependencies ()
-  ;; The package only uses built-in libraries, so it installs on a vanilla
-  ;; Emacs.  The Makefile doesn't install s.el, so a stray s- call would
-  ;; also fail byte-compilation.
-  (should-not (featurep 's)))
-
-;;;; Built-in string handling
+;;;; References
 ;;
-;; rcf-sword used s.el until 0.2.2.  These tests pin the behaviour of each
-;; built-in replacement at its call site.  The expected values were
-;; checked against the s.el-based v0.2.0 release over a wide set of inputs
-;; (whitespace variants, case, regexp characters, Unicode, empty strings),
-;; and every result matched.
+;; Parsing, labelling and checking references like "John 3:16-4:2".
 
-(ert-deftest rcf-sword-test-strings-prefix-ignores-case ()
-  ;; `string-prefix-p' with IGNORE-CASE replaced `s-starts-with?'.
-  (should (equal (rcf-sword--book-number "GEN") 1))
-  (should (equal (rcf-sword--book-number "gEn") 1))
-  (should (equal (rcf-sword--book-number "1 JOHN") 62))
-  (should (equal (rcf-sword--book-number "song of") 22))
-  ;; The empty string is a prefix of every name, so it finds the first book.
-  (should (equal (rcf-sword--book-number "") 1)))
+(ert-deftest rcf-sword-test-reference-spans ()
+  "References parse into spans of chapters and verses."
+  (pcase-dolist (`(,input ,parsed)
+                 '(("Genesis 6" ("Genesis" ((6 nil 6 nil))))
+                   ("Genesis 6:1" ("Genesis" ((6 1 6 1))))
+                   ("Genesis 6:1-2" ("Genesis" ((6 1 6 2))))
+                   ("  1 Cor 13:4-7 " ("1 Cor" ((13 4 13 7))))
+                   ("Song  of Solomon 2" ("Song of Solomon" ((2 nil 2 nil))))
+                   ;; Ranges across chapters.
+                   ("John 3:16-4:2" ("John" ((3 16 4 2))))
+                   ;; Lists, with or without spaces; they belong to the last
+                   ;; chapter named.
+                   ("Ps 23:1,4" ("Ps" ((23 1 23 1) (23 4 23 4))))
+                   ("Ps 23:1-2, 4-5,  6" ("Ps" ((23 1 23 2) (23 4 23 5) (23 6 23 6))))
+                   ("John 3:16-4:2,5" ("John" ((3 16 4 2) (4 5 4 5))))
+                   ;; Not a chapter and verses.
+                   ("Jude" nil) ("Ps 23:1-2-3" nil) ("Ps 23:1,,4" nil)))
+    (should (equal (cons input (rcf-sword--reference-spans input))
+                   (cons input parsed)))))
 
-(ert-deftest rcf-sword-test-strings-contains-ignores-case ()
-  ;; A case-folded `string-match-p' on a `regexp-quote'd needle replaced
-  ;; `s-contains?' with IGNORE-CASE.
-  (should (equal (rcf-sword--book-number "TIM") 54))
-  (should (equal (rcf-sword--book-number "of sol") 22))
-  ;; Contains matches go in canonical order: John before 1 John.
-  (should (equal (rcf-sword--book-number "OHN") 43))
-  (should (equal (rcf-sword--book-number "ohn") 43)))
-
-(ert-deftest rcf-sword-test-strings-contains-is-literal ()
-  ;; Regexp characters in what the user types match literally, so they
-  ;; neither error nor act as wildcards.
-  (dolist (needle '("." ".*" "J.hn" "Gen.*" "[" "]" "\\" "(" "?" "+" "^G" "s$"))
-    (should-not (rcf-sword--find-book needle))))
-
-(ert-deftest rcf-sword-test-strings-parse-whitespace ()
-  ;; `split-string' with OMIT-NULLS replaced `s-trim' and `s-split'.
-  ;; Outer whitespace of any kind is ignored, and runs of spaces between
-  ;; words collapse.
-  (should (equal (rcf-sword--parse-reference " \t1 Cor 13:4-7\r\n ")
-                 '("1 Cor" 13 (4 7))))
-  (should (equal (rcf-sword--parse-reference "1   Cor   13")
-                 '("1 Cor" 13 nil)))
-  ;; `string-join' replaced `s-join': book words rejoin with single spaces.
-  (should (equal (rcf-sword--parse-reference "Song  of   Solomon 2:1")
-                 '("Song of Solomon" 2 (1))))
-  ;; Since 0.2.2, tabs, newlines and non-breaking spaces separate words
-  ;; too.  (With s.el only spaces did, so "Ps\t23" was one word.)
-  (should (equal (rcf-sword--parse-reference "Ps\t23") '("Ps" 23 nil)))
-  (should (equal (rcf-sword--parse-reference "1\u00a0Cor\n13:4") '("1 Cor" 13 (4)))))
-
-(ert-deftest rcf-sword-test-strings-parse-verse-ranges ()
-  ;; `split-string' on ":" (keeping empty parts) and on "-" (omitting
-  ;; them) replaced `s-split'.
-  (should (equal (rcf-sword--parse-reference "Ps 23:") '("Ps" 23 nil)))
-  (should (equal (rcf-sword--parse-reference "Ps 23:1-") '("Ps" 23 (1))))
-  (should (equal (rcf-sword--parse-reference "Ps 23:1-2-3") '("Ps" 23 (1 2 3))))
-  (should (equal (rcf-sword--parse-reference "Ps :1") '("Ps" 0 (1)))))
-
-(ert-deftest rcf-sword-test-strings-blank-reference ()
-  ;; A blank reference is rejected, with a friendly message since 0.2.2.
-  (should-error (rcf-sword--lookup "") :type 'user-error)
-  (should-error (rcf-sword--lookup "   ") :type 'user-error))
-
-(ert-deftest rcf-sword-test-strings-first-word ()
-  ;; `split-string' with OMIT-NULLS replaced `s-split' when taking a
-  ;; verse's first word.
-  (should (rcf-sword--start-is-continuation-p "  and so"))
-  (should (rcf-sword--start-is-continuation-p "AND so"))
-  (should-not (rcf-sword--start-is-continuation-p "   "))
-  ;; The whole first word is compared, punctuation included, so "And,"
-  ;; isn't a conjunction and isn't lowercase.
-  (should-not (rcf-sword--start-is-continuation-p "And, behold")))
-
-(ert-deftest rcf-sword-test-strings-trim-verses ()
-  ;; `string-trim' replaced `s-trim' on each verse's text, removing
-  ;; spaces, tabs, carriage returns and newlines at either end.
-  (with-temp-buffer
-    (rcf-sword--insert-lines '((1 1 1 "\t In the beginning.\r\n ")
-                               (1 1 2 "\nAnd the earth was void. \t"))
-                             nil)
-    (should (equal (buffer-string)
-                   "In the beginning. And the earth was void."))))
-
-;;;; Malformed input
-
-(defun rcf-sword-test--user-error (function &rest args)
-  "Call FUNCTION with ARGS and return its `user-error' message, or nil."
-  (condition-case err
-      (progn (apply function args) nil)
-    (user-error (error-message-string err))))
+(ert-deftest rcf-sword-test-reference-string ()
+  "Passage labels collapse consecutive verses into ranges."
+  ;; Labels collapse consecutive verses, across chapters too.
+  (pcase-dolist (`(,verses ,label)
+                 '((((19 23 1)) "Psalms 23:1")
+                   (((19 23 1) (19 23 2) (19 23 3)) "Psalms 23:1-3")
+                   (((19 23 1) (19 23 2) (19 23 4)) "Psalms 23:1-2, 4")
+                   (((43 3 35) (43 3 36) (43 4 1) (43 4 2)) "John 3:35-4:2")
+                   (((19 1 1) (19 2 3)) "Psalms 1:1, 2:3")))
+    (should (equal (rcf-sword--reference-string verses) label))))
 
 (ert-deftest rcf-sword-test-reference-problems ()
+  "Each kind of malformed reference gets a specific, friendly message."
   ;; Each kind of malformed reference gets a message saying what's wrong
   ;; and how to fix it.  None of this needs a database.
   (pcase-dolist
@@ -205,41 +227,276 @@
          ("John3:16" "Put a space before the chapter, like \"John 3:16\"")
          ("1 John3" "Put a space before the chapter, like \"1 John 3\"")
          ("3:16" "Add a book name before \"3:16\", like \"John 3:16\"")
-         ("Ps abc" "Can't read \"abc\" as a chapter and verses; use a form like 3, 3:16 or 3:16-18")
-         ("Ps 23:a" "Can't read \"23:a\" as a chapter and verses; use a form like 3, 3:16 or 3:16-18")
-         ("Ps 23:1-2-3" "Can't read \"23:1-2-3\" as a chapter and verses; use a form like 3, 3:16 or 3:16-18")
-         ("Ps 23::1" "Can't read \"23::1\" as a chapter and verses; use a form like 3, 3:16 or 3:16-18")
-         ("Ps :1" "Can't read \":1\" as a chapter and verses; use a form like 3, 3:16 or 3:16-18")
-         ("Ps -1" "Can't read \"-1\" as a chapter and verses; use a form like 3, 3:16 or 3:16-18")
+         ("Ps abc" "Can't read \"abc\" as a chapter and verses; use a form like 3, 3:16, 3:16-18, 3:16,18 or 3:16-4:2")
+         ("Ps 23:a" "Can't read \"23:a\" as a chapter and verses; use a form like 3, 3:16, 3:16-18, 3:16,18 or 3:16-4:2")
+         ("Ps 23:1-2-3" "Can't read \"23:1-2-3\" as a chapter and verses; use a form like 3, 3:16, 3:16-18, 3:16,18 or 3:16-4:2")
+         ("Ps 23::1" "Can't read \"23::1\" as a chapter and verses; use a form like 3, 3:16, 3:16-18, 3:16,18 or 3:16-4:2")
+         ("Ps :1" "Can't read \":1\" as a chapter and verses; use a form like 3, 3:16, 3:16-18, 3:16,18 or 3:16-4:2")
+         ("Ps -1" "Can't read \"-1\" as a chapter and verses; use a form like 3, 3:16, 3:16-18, 3:16,18 or 3:16-4:2")
          ("Ps 0" "Chapters and verses start at 1, so \"0\" doesn't exist")
          ("Ps 23:0" "Chapters and verses start at 1, so \"23:0\" doesn't exist")
-         ("Ps 23:5-2" "The verses in \"23:5-2\" run backwards; did you mean 23:2-5?")))
+         ("Ps 23:5-2" "The verses in \"23:5-2\" run backwards; did you mean 23:2-5?")
+         ("John 4:2-3:16" "The verses in \"4:2-3:16\" run backwards; did you mean 3:16-4:2?")
+         ("Ps 23:1,5-2" "The verses in \"23:1,5-2\" run backwards; did you mean 23:2-5?")
+         ("Ps 23:1,0" "Chapters and verses start at 1, so \"23:1,0\" doesn't exist")))
     (should (equal (cons input (rcf-sword--reference-problem input))
                    (cons input message)))))
 
 (ert-deftest rcf-sword-test-reference-problems-accepts-valid ()
+  "Well-formed references, including forgiving forms, have no problem."
   ;; Well-formed references pass, including the forgiving forms.
   (dolist (input '("Ps 23" "Ps 23:" "Ps 23:1" "Ps 23:1-" "Ps 23:1-2"
+                   "John 3:16-4:2" "Ps 23:1,3" "Ps 23:1, 3"
                    " 1 Cor 13:4-7 " "Song of Solomon 2" "Ps\t23" "gen 1"))
     (should (equal (cons input (rcf-sword--reference-problem input))
                    (list input)))))
 
 (ert-deftest rcf-sword-test-malformed-input-needs-no-database ()
+  "Malformed references are reported without opening the database."
   ;; Malformed input is reported before the database is opened, so the
   ;; message is accurate even when the database isn't set up.
   (let ((rcf-sword-bblx-file nil))
     (should (equal (rcf-sword-test--user-error #'rcf-sword--lookup "Jude")
                    "Add a chapter number, like \"Jude 1\""))))
 
-;;;; Database-backed
+(ert-deftest rcf-sword-test-more-reference-forms ()
+  "Cross-chapter ranges and verse lists look up the right verses."
+  (rcf-sword-test--with-db
+    ;; A range across chapters, and a list; the label describes the result.
+    (should (equal (mapcar (lambda (verse) (seq-take verse 3))
+                           (rcf-sword--lookup "Ps 2:1-23:2"))
+                   '((19 2 1) (19 23 1) (19 23 2))))
+    (should (equal (mapcar #'cl-caddr (rcf-sword--lookup "Ps 23:1, 3")) '(1 3)))
+    (with-temp-buffer
+      (rcf-sword-insert-verse "Ps 23:1,3")
+      (should (string-suffix-p " -- Psalms 23:1, 3 KJV" (buffer-string))))
+    ;; Listed verses that don't exist are skipped, like partial ranges.
+    (should (equal (mapcar #'cl-caddr (rcf-sword--lookup "Ps 23:3,9")) '(3)))
+    ;; The reference at point understands the new forms.
+    (with-temp-buffer
+      (insert "See Ps 23:1,3 and John 3:16-4:2.")
+      (goto-char 6)
+      (should (equal (rcf-sword--reference-at-point) "Ps 23:1,3"))
+      (search-forward "John")
+      (should (equal (rcf-sword--reference-at-point) "John 3:16-4:2")))))
+
+(ert-deftest rcf-sword-test-missing-passages ()
+  "References missing from the database say what's missing."
+  ;; Well-formed references that aren't in the database say what's
+  ;; missing.  The fixture has Genesis 1, Psalms 23 and Proverbs 1.
+  (rcf-sword-test--with-db
+    (should (equal (rcf-sword-test--user-error #'rcf-sword--lookup "Matt 1")
+                   "This translation doesn't include Matthew"))
+    (should (equal (rcf-sword-test--user-error #'rcf-sword--lookup "Ps 151")
+                   "Psalms ends at chapter 23, so there's no chapter 151"))
+    (should (equal (rcf-sword-test--user-error #'rcf-sword--lookup "Ps 23:50-60")
+                   "Psalms 23 ends at verse 3, so there's no verse 50"))
+    ;; A range that only partly exists returns the verses that do.
+    (should (equal (mapcar #'cl-caddr (rcf-sword--lookup "Ps 23:2-50")) '(2 3)))))
+
+(ert-deftest rcf-sword-test-insert-malformed-leaves-buffer-alone ()
+  "A bad reference inserts nothing and leaves the buffer unchanged."
+  (rcf-sword-test--with-db
+    (with-temp-buffer
+      (insert "notes")
+      (should (equal (rcf-sword-test--user-error #'rcf-sword-insert-verse "Ps 23:5-2")
+                     "The verses in \"23:5-2\" run backwards; did you mean 23:2-5?"))
+      (should (equal (rcf-sword-test--user-error #'rcf-sword-insert-verse "Ps 99")
+                     "Psalms ends at chapter 23, so there's no chapter 99"))
+      (should (equal (buffer-string) "notes")))))
+
+;;;; Built-in string handling
+;;
+;; rcf-sword used s.el until 0.2.2.  These tests pin the behaviour of each
+;; built-in replacement at its call site.  The expected values were
+;; checked against the s.el-based v0.2.0 release over a wide set of inputs
+;; (whitespace variants, case, regexp characters, Unicode, empty strings),
+;; and every result matched.
+
+(ert-deftest rcf-sword-test-strings-prefix-ignores-case ()
+  "Prefix matching ignores case, as `s-starts-with?' did."
+  ;; `string-prefix-p' with IGNORE-CASE replaced `s-starts-with?'.
+  (should (equal (rcf-sword--book-number "GEN") 1))
+  (should (equal (rcf-sword--book-number "gEn") 1))
+  (should (equal (rcf-sword--book-number "1 JOHN") 62))
+  (should (equal (rcf-sword--book-number "song of") 22))
+  ;; The empty string is a prefix of every name, so it finds the first book.
+  (should (equal (rcf-sword--book-number "") 1)))
+
+(ert-deftest rcf-sword-test-strings-contains-ignores-case ()
+  "Substring matching ignores case, as `s-contains?' did."
+  ;; A case-folded `string-match-p' on a `regexp-quote'd needle replaced
+  ;; `s-contains?' with IGNORE-CASE.
+  (should (equal (rcf-sword--book-number "TIM") 54))
+  (should (equal (rcf-sword--book-number "of sol") 22))
+  ;; Contains matches go in canonical order: John before 1 John.
+  (should (equal (rcf-sword--book-number "OHN") 43))
+  (should (equal (rcf-sword--book-number "ohn") 43)))
+
+(ert-deftest rcf-sword-test-strings-contains-is-literal ()
+  "Regexp characters in a book name match literally."
+  ;; Regexp characters in what the user types match literally, so they
+  ;; neither error nor act as wildcards.
+  (dolist (needle '("." ".*" "J.hn" "Gen.*" "[" "]" "\\" "(" "?" "+" "^G" "s$"))
+    (should-not (rcf-sword--find-book needle))))
+
+(ert-deftest rcf-sword-test-strings-parse-whitespace ()
+  "Any whitespace separates a reference's words; extra space is fine."
+  ;; `split-string' with OMIT-NULLS replaced `s-trim' and `s-split'.
+  ;; Outer whitespace of any kind is ignored, and runs of spaces between
+  ;; words collapse.
+  (should (equal (car (rcf-sword--reference-spans " \t1 Cor 13:4-7\r\n "))
+                 "1 Cor"))
+  (should (equal (car (rcf-sword--reference-spans "1   Cor   13")) "1 Cor"))
+  ;; `string-join' replaced `s-join': book words rejoin with single spaces.
+  (should (equal (car (rcf-sword--reference-spans "Song  of   Solomon 2:1"))
+                 "Song of Solomon"))
+  ;; Since 0.2.2, tabs, newlines and non-breaking spaces separate words
+  ;; too.  (With s.el only spaces did, so "Ps\t23" was one word.)
+  (should (equal (rcf-sword--reference-spans "Ps\t23") '("Ps" ((23 nil 23 nil)))))
+  (should (equal (rcf-sword--reference-spans "1\u00a0Cor\n13:4") '("1 Cor" ((13 4 13 4))))))
+
+(ert-deftest rcf-sword-test-strings-parse-verse-ranges ()
+  "A trailing colon or dash is forgiven; other stray punctuation isn't."
+  ;; A trailing colon or dash is forgiven: "Ps 23:" is the whole chapter
+  ;; and "Ps 23:1-" is verse 1.  (Since 0.3.0 a regexp parses these.)
+  (should (equal (rcf-sword--reference-spans "Ps 23:") '("Ps" ((23 nil 23 nil)))))
+  (should (equal (rcf-sword--reference-spans "Ps 23:1-") '("Ps" ((23 1 23 1)))))
+  (should-not (rcf-sword--reference-spans "Ps 23:1-2-3"))
+  (should-not (rcf-sword--reference-spans "Ps :1")))
+
+(ert-deftest rcf-sword-test-strings-blank-reference ()
+  "A blank reference is a `user-error', not a Lisp error."
+  ;; A blank reference is rejected, with a friendly message since 0.2.2.
+  (should-error (rcf-sword--lookup "") :type 'user-error)
+  (should-error (rcf-sword--lookup "   ") :type 'user-error))
+
+(ert-deftest rcf-sword-test-strings-first-word ()
+  "A verse's first word is found despite extra spaces."
+  ;; `split-string' with OMIT-NULLS replaced `s-split' when taking a
+  ;; verse's first word.
+  (should (rcf-sword--start-is-continuation-p "  and so"))
+  (should (rcf-sword--start-is-continuation-p "AND so"))
+  (should-not (rcf-sword--start-is-continuation-p "   "))
+  ;; The whole first word is compared, punctuation included, so "And,"
+  ;; isn't a conjunction and isn't lowercase.
+  (should-not (rcf-sword--start-is-continuation-p "And, behold")))
+
+(ert-deftest rcf-sword-test-strings-trim-verses ()
+  "Verse text is trimmed of all surrounding whitespace."
+  ;; `string-trim' replaced `s-trim' on each verse's text, removing
+  ;; spaces, tabs, carriage returns and newlines at either end.
+  (with-temp-buffer
+    (rcf-sword--insert-lines '((1 1 1 "\t In the beginning.\r\n ")
+                               (1 1 2 "\nAnd the earth was void. \t"))
+                             nil)
+    (should (equal (buffer-string)
+                   "In the beginning. And the earth was void."))))
+
+;;;; Formatting helpers
+
+(ert-deftest rcf-sword-test-split-by-chapter ()
+  "Ordered verses split into one group per chapter."
+  (should (equal (rcf-sword--split-by-chapter
+                  '((19 1 1 "a") (19 1 2 "b") (19 2 1 "c") (19 3 1 "d") (19 3 2 "e")))
+                 '(((19 1 1 "a") (19 1 2 "b"))
+                   ((19 2 1 "c"))
+                   ((19 3 1 "d") (19 3 2 "e")))))
+  (should-not (rcf-sword--split-by-chapter nil)))
+
+(ert-deftest rcf-sword-test-superscript ()
+  "Verse numbers become superscript digits."
+  (should (equal (rcf-sword--superscript 0) "⁰"))
+  (should (equal (rcf-sword--superscript 123) "¹²³"))
+  (should (equal (rcf-sword--superscript 4567890) "⁴⁵⁶⁷⁸⁹⁰")))
+
+(ert-deftest rcf-sword-test-continuation ()
+  "Conjunctions, lowercase starts and trailing ;:, join verses."
+  (should (rcf-sword--start-is-continuation-p "and darkness"))
+  (should (rcf-sword--start-is-continuation-p "And darkness"))
+  (should (rcf-sword--start-is-continuation-p "whoever believes"))
+  (should-not (rcf-sword--start-is-continuation-p "Then God said"))
+  (should-not (rcf-sword--start-is-continuation-p "\"Let there be light\""))
+  (should-not (rcf-sword--start-is-continuation-p ""))
+  (should (rcf-sword--end-is-continuation-p "begotten Son,"))
+  (should (rcf-sword--end-is-continuation-p "of Israel:"))
+  (should-not (rcf-sword--end-is-continuation-p "and the earth.")))
+
+(ert-deftest rcf-sword-test-footnotes-dont-break-paragraphs ()
+  "A footnote marker doesn't hide a verse's continuing punctuation."
+  ;; A footnote marker after a verse's closing semicolon used to hide the
+  ;; semicolon from the continuation check, starting a new paragraph.
+  (with-temp-buffer
+    (rcf-sword--insert-lines '((1 1 1 "The earth was void;{\\cf2\\super [1]}")
+                               (1 1 2 "The deep was dark."))
+                             nil)
+    (should (equal (buffer-string)
+                   "The earth was void; The deep was dark."))))
+
+;;;; Prompting
+
+(ert-deftest rcf-sword-test-reference-at-point ()
+  "The reference under the cursor is found, but only real ones."
+  (with-temp-buffer
+    (insert "As John 3:16 says, and 1 Cor 13:4-7 too; see Foo 3 or chapter 9.")
+    (pcase-dolist (`(,text ,reference)
+                   '(("John" "John 3:16") ("3:16" "John 3:16")
+                     ("Cor" "1 Cor 13:4-7") ("4-7" "1 Cor 13:4-7")
+                     ;; Not references: an unknown book, or no number.
+                     ("Foo" nil) ("chapter" nil) ("says" nil)))
+      (goto-char (point-min))
+      (search-forward text)
+      (backward-char)
+      (should (equal (cons text (rcf-sword--reference-at-point))
+                     (cons text reference))))))
+
+(ert-deftest rcf-sword-test-read-reference ()
+  "The prompt offers the reference at point and keeps a history."
+  ;; The prompt offers the reference at point and records history.
+  (with-temp-buffer
+    (insert "Read Ps 23 today")
+    (goto-char 8)
+    (cl-letf (((symbol-function 'read-string)
+               (lambda (prompt _initial history default)
+                 (list prompt history default))))
+      (should (equal (rcf-sword--read-reference "Enter verse")
+                     '("Enter verse (default Ps 23): "
+                       rcf-sword-reference-history "Ps 23"))))))
+
+;;;; The database
 
 (ert-deftest rcf-sword-test-missing-file ()
+  "An unset or missing database file is a `user-error'."
   (let ((rcf-sword-bblx-file nil))
     (should-error (rcf-sword--get-db) :type 'user-error))
   (let ((rcf-sword-bblx-file "/nonexistent/file.bblx"))
     (should-error (rcf-sword--get-db) :type 'user-error)))
 
+(ert-deftest rcf-sword-test-not-a-bible-module ()
+  "A file that isn't an e-Sword Bible gets a friendly message."
+  ;; A file that isn't SQLite, and a SQLite file without the e-Sword
+  ;; tables, both get a friendly message instead of a raw SQL error.
+  (dolist (make-file
+           (list (lambda (file) (with-temp-file file (insert "Just some notes.\n")))
+                 (lambda (file)
+                   (let ((db (sqlite-open file)))
+                     (sqlite-execute db "CREATE TABLE Notes (Text TEXT);")
+                     (sqlite-close db)))))
+    (let* ((file (make-temp-file "rcf-sword-test" nil ".bblx"))
+           (rcf-sword-bblx-file file))
+      (unwind-protect
+          (progn
+            (funcall make-file file)
+            (rcf-sword-close-database)
+            (should (equal (rcf-sword-test--user-error #'rcf-sword--get-db)
+                           (format "%s isn't an e-Sword Bible module: it needs Bible and Details tables"
+                                   file)))
+            ;; The failed connection isn't kept.
+            (should-not rcf-sword--db))
+        (delete-file file)))))
+
 (ert-deftest rcf-sword-test-lookup ()
+  "The translation's details and verses come from the database."
   (rcf-sword-test--with-db
     (should (equal (rcf-sword-translation-name) "King James Version"))
     (should (equal (rcf-sword-translation-abbreviation) "KJV"))
@@ -248,7 +505,10 @@
     (should (equal (mapcar #'cl-caddr (rcf-sword--lookup "Ps 23:1-2")) '(1 2)))
     (should-error (rcf-sword--lookup "Nonexistent 1:1") :type 'user-error)))
 
+;;;; Inserting and copying passages
+
 (ert-deftest rcf-sword-test-insert-plain ()
+  "Plain text: paragraphs, filled, then an attribution line."
   (rcf-sword-test--with-db
     (with-temp-buffer
       (rcf-sword-insert-verse "Psalm 23:1-3")
@@ -265,6 +525,7 @@
                              " -- Psalms 23:1-3 KJV"))))))
 
 (ert-deftest rcf-sword-test-insert-org ()
+  "Org: a #+verse: line and a quote block."
   (rcf-sword-test--with-db
     (with-temp-buffer
       (org-mode)
@@ -278,6 +539,7 @@
                              "#+end_quote\n"))))))
 
 (ert-deftest rcf-sword-test-insert-markdown ()
+  "Markdown: a block quote, with the attribution linked if asked."
   (skip-unless (require 'markdown-mode nil t))
   (rcf-sword-test--with-db
     (with-temp-buffer
@@ -293,56 +555,417 @@
                              "> -- [Psalms 23:1-2 KJV](https://www.biblegateway.com/passage/"
                              "?search=Psalms%2023%3A1-2&version=KJV)"))))))
 
-(ert-deftest rcf-sword-test-missing-passages ()
-  ;; Well-formed references that aren't in the database say what's
-  ;; missing.  The fixture has Genesis 1, Psalms 23 and Proverbs 1.
-  (rcf-sword-test--with-db
-    (should (equal (rcf-sword-test--user-error #'rcf-sword--lookup "Matt 1")
-                   "This translation doesn't include Matthew"))
-    (should (equal (rcf-sword-test--user-error #'rcf-sword--lookup "Ps 151")
-                   "Psalms ends at chapter 23, so there's no chapter 151"))
-    (should (equal (rcf-sword-test--user-error #'rcf-sword--lookup "Ps 23:50-60")
-                   "Psalms 23 ends at verse 3, so there's no verse 50"))
-    ;; A range that only partly exists returns the verses that do.
-    (should (equal (mapcar #'cl-caddr (rcf-sword--lookup "Ps 23:2-50")) '(2 3)))))
-
-(ert-deftest rcf-sword-test-insert-malformed-leaves-buffer-alone ()
+(ert-deftest rcf-sword-test-markdown-footnotes ()
+  "With `rcf-sword-md-use-footnotes', a footnote links to the passage."
+  (skip-unless (require 'markdown-mode nil t))
   (rcf-sword-test--with-db
     (with-temp-buffer
-      (insert "notes")
-      (should (equal (rcf-sword-test--user-error #'rcf-sword-insert-verse "Ps 23:5-2")
-                     "The verses in \"23:5-2\" run backwards; did you mean 23:2-5?"))
-      (should (equal (rcf-sword-test--user-error #'rcf-sword-insert-verse "Ps 99")
-                     "Psalms ends at chapter 23, so there's no chapter 99"))
-      (should (equal (buffer-string) "notes")))))
+      (markdown-mode)
+      (let ((rcf-sword-md-use-footnotes t))
+        (rcf-sword-insert-verse "Ps 23:1"))
+      (should (equal (substring-no-properties (buffer-string))
+                     (concat "> The LORD is my shepherd; I shall not want.\n"
+                             ">  \n"
+                             "> -- Psalms 23:1 KJV[^1]\n"
+                             "\n"
+                             "[^1]: [Psalms 23:1 KJV](https://www.biblegateway.com/verse/en/Psalms%2023%3A1)"))))))
+
+(ert-deftest rcf-sword-test-formatting-templates ()
+  "The org wrapping and attribution format can be customized."
+  (rcf-sword-test--with-db
+    (with-temp-buffer
+      ;; An org verse block with the reference underneath.
+      (org-mode)
+      (let ((rcf-sword-org-before "#+begin_verse\n")
+            (rcf-sword-org-after "\n#+end_verse\n-- %s\n"))
+        (rcf-sword-insert-verse "Ps 23:1"))
+      (should (equal (buffer-string)
+                     (concat "#+begin_verse\n"
+                             "The LORD is my shepherd; I shall not want.\n"
+                             "#+end_verse\n"
+                             "-- Psalms 23:1 KJV\n")))
+      ;; An em dash attribution in plain text.
+      (fundamental-mode)
+      (erase-buffer)
+      (let ((rcf-sword-attribution-format "— %s"))
+        (rcf-sword-insert-verse "Ps 23:1"))
+      (should (string-suffix-p "\n\n — Psalms 23:1 KJV" (buffer-string))))))
+
+(ert-deftest rcf-sword-test-insert-verse-numbers ()
+  "Verse numbers in inserted passages follow the option and C-u."
+  (rcf-sword-test--with-db
+    (with-temp-buffer
+      ;; Off by default; a prefix argument turns them on for one insertion.
+      (rcf-sword-insert-verse "Ps 23:1-2")
+      (should-not (string-match-p "¹" (buffer-string)))
+      (erase-buffer)
+      (rcf-sword-insert-verse "Ps 23:1-2" '(4))
+      (should (string-match-p "\\`¹The LORD.*\n\n²He maketh" (buffer-string)))
+      ;; With the option on, the prefix argument turns them off.
+      (let ((rcf-sword-insert-verse-numbers t))
+        (erase-buffer)
+        (rcf-sword-insert-verse "Ps 23:1")
+        (should (string-prefix-p "¹The LORD" (buffer-string)))
+        (erase-buffer)
+        (rcf-sword-insert-verse "Ps 23:1" '(4))
+        (should (string-prefix-p "The LORD" (buffer-string)))))))
+
+(ert-deftest rcf-sword-test-copy-verse ()
+  "Copying gives unwrapped plain text and changes no buffer."
+  ;; Copied as plain text, without hard wrapping, and the buffer is untouched.
+  (rcf-sword-test--with-db
+    (with-temp-buffer
+      (org-mode)
+      (let ((kill-ring nil))
+        (rcf-sword-copy-verse "Ps 23:2-3")
+        (should (equal (buffer-string) ""))
+        (should (equal (car kill-ring)
+                       (concat "He maketh me to lie down in green pastures: he leadeth me beside the still waters.\n"
+                               "\n"
+                               "He restoreth my soul: he leadeth me in the paths of righteousness for his name's sake.\n"
+                               "\n"
+                               " -- Psalms 23:2-3 KJV")))))))
+
+;;;; Random verses and the verse of the day
+
+(ert-deftest rcf-sword-test-random-is-fair ()
+  "Random verses are drawn evenly from every verse."
+  ;; Every verse is equally likely, wherever it is.  With the old
+  ;; book-then-chapter-then-verse sampling, Proverbs 1:1 (alone in its
+  ;; book) came up a third of the time.  Now each of the fixture's N
+  ;; verses should come up about 1/N of the time: 100 N draws give ~100
+  ;; each, and 50-160 is over 5 standard deviations either side.
+  (rcf-sword-test--with-db
+    (let ((counts (make-hash-table :test #'equal))
+          (n (length rcf-sword-test--verses)))
+      (dotimes (_ (* 100 n))
+        (cl-incf (gethash (butlast (car (rcf-sword--random-verse)))
+                          counts 0)))
+      (should (= (hash-table-count counts) n))
+      (maphash (lambda (_verse n) (should (< 50 n 160))) counts))
+    ;; With a book, only that book's verses are drawn.
+    (dotimes (_ 20)
+      (should (= (caar (rcf-sword--random-verse 19)) 19)))
+    (should-not (rcf-sword--random-verse 40))))
+
+(ert-deftest rcf-sword-test-random-commands ()
+  "The random commands insert a single verse, from Proverbs for a proverb."
+  (rcf-sword-test--with-db
+    (with-temp-buffer
+      (rcf-sword-insert-random-proverb)
+      (should (string-suffix-p " -- Proverbs 1:1 KJV" (buffer-string)))
+      (erase-buffer)
+      (rcf-sword-insert-random-verse)
+      ;; Some fixture verse, labelled with a one-verse reference.
+      (should (string-match-p " -- .+ [0-9]+:[0-9]+ KJV\\'" (buffer-string))))))
+
+(ert-deftest rcf-sword-test-verse-of-the-day ()
+  "Today's verse is the same all day and differs from day to day."
+  (rcf-sword-test--with-db
+    (let* ((morning (encode-time '(0 0 8 30 10 2026 nil nil nil)))
+           (evening (encode-time '(0 0 22 30 10 2026 nil nil nil)))
+           (tomorrow (encode-time '(0 0 8 31 10 2026 nil nil nil)))
+           (today (rcf-sword--verse-of-the-day morning)))
+      ;; One verse, the same all day, and a different one the next day.
+      (should (= (length today) 1))
+      (should (equal (rcf-sword--verse-of-the-day evening) today))
+      (should-not (equal (rcf-sword--verse-of-the-day tomorrow) today))
+      ;; A week of days visits a week of different verses.
+      (should (= 7 (length (seq-uniq
+                            (mapcar (lambda (day)
+                                      (rcf-sword--verse-of-the-day
+                                       (encode-time (list 0 0 8 day 11 2026 nil nil nil))))
+                                    (number-sequence 1 7))))))
+      ;; The command returns plain text, and inserts with a prefix argument.
+      (cl-letf (((symbol-function 'rcf-sword--verse-of-the-day)
+                 (lambda (&optional _) today)))
+        (let ((text (rcf-sword-verse-of-the-day)))
+          (should (string-match-p " -- .* KJV\\'" text))
+          (with-temp-buffer
+            (rcf-sword-verse-of-the-day '(4))
+            (should (equal (buffer-string) text))))))))
+
+;;;; Translations
+
+(ert-deftest rcf-sword-test-several-translations ()
+  "Comparing inserts every translation; switching updates readers."
+  (rcf-sword-test--with-db
+    (let* ((other (rcf-sword-test--make-db
+                   "Plain Test Version" "PTV"
+                   '((19 23 1 " The Lord looks after me; I have all I need."))))
+           (rcf-sword-bblx-files (list rcf-sword-bblx-file other)))
+      (unwind-protect
+          (save-window-excursion
+            (with-temp-buffer
+              ;; One passage per translation, in order.
+              (rcf-sword-insert-verse-compare "Ps 23:1")
+              (should (= (point) (point-min)))
+              (should (equal (buffer-string)
+                             (concat "The LORD is my shepherd; I shall not want.\n\n"
+                                     " -- Psalms 23:1 KJV\n\n"
+                                     "The Lord looks after me; I have all I need.\n\n"
+                                     " -- Psalms 23:1 PTV"))))
+            ;; Switching re-renders open readers in the new translation.
+            (with-current-buffer (rcf-sword-read-book "Ps 23:1")
+              (cl-letf (((symbol-function 'completing-read)
+                         (lambda (&rest _) other)))
+                (call-interactively #'rcf-sword-switch-translation))
+              (should (equal rcf-sword-bblx-file other))
+              (should (equal (rcf-sword-translation-abbreviation) "PTV"))
+              (should (string-match-p "¹The Lord looks after me" (buffer-string)))
+              (kill-buffer)))
+        (delete-file other)))))
+
+;;;; The book reader
+
+(ert-deftest rcf-sword-test-read-book ()
+  "The reader shows a titled book with chapter headings and verse numbers."
+  (rcf-sword-test--with-db
+    (save-window-excursion
+      (unwind-protect
+          (progn
+            (with-current-buffer (rcf-sword-read-book "Ps")
+              (should (derived-mode-p 'rcf-sword-reader-mode))
+              (should buffer-read-only)
+              (should-not cursor-type)
+              (should scroll-lock-mode)
+              (should (eq (lookup-key rcf-sword-reader-mode-map "n") #'next-line))
+              ;; The underlined title, then chapter 1 with no heading of its
+              ;; own; later chapters get centered, underlined headings.
+              (should (string-match-p
+                       (concat "\\`\n\n\n[ \t]*Psalms\n[ \t]*" (make-string 10 ?—)
+                               "\n\n¹Blessed is the man")
+                       (buffer-string)))
+              (should (string-match-p
+                       (concat "scornful\\.\n\n[ \t]*Psalms Ch\\. 2\n[ \t]*"
+                               (make-string 12 ?—) "\n¹Why do the heathen")
+                       (buffer-string)))
+              (should-not (string-match-p "Ch\\. 1\n" (buffer-string)))
+              ;; q closes the reader.
+              (call-interactively (keymap-lookup nil "q"))
+              (should-not (get-buffer "Scripture: Psalms")))
+            ;; Footnote markers (Genesis 1:2 has one) don't show.
+            (with-current-buffer (rcf-sword-read-book "Gen")
+              (should-not (string-match-p "cf2" (buffer-string)))))
+        (dolist (name '("Scripture: Psalms" "Scripture: Genesis"))
+          (when (get-buffer name) (kill-buffer name)))))))
 
 (ert-deftest rcf-sword-test-read-book-malformed ()
+  "A blank or unknown book name gets a friendly message."
   (rcf-sword-test--with-db
     (should (equal (rcf-sword-test--user-error #'rcf-sword-read-book "")
                    "Type a book name, like \"Genesis\" or \"Ps\""))
     (should (equal (rcf-sword-test--user-error #'rcf-sword-read-book "Foo")
                    "No book matches \"Foo\"; try a name like \"Gen\", \"1 Cor\" or \"Psalms\""))))
 
-(ert-deftest rcf-sword-test-random ()
-  (rcf-sword-test--with-db
-    (with-temp-buffer
-      (rcf-sword-insert-random-proverb)
-      (should (string-match-p "Proverbs 1:1 KJV" (buffer-string))))))
-
-(ert-deftest rcf-sword-test-read-book ()
+(ert-deftest rcf-sword-test-read-book-at-reference ()
+  "The reader opens at a chapter or verse, or explains why not."
   (rcf-sword-test--with-db
     (save-window-excursion
-      (rcf-sword-read-book "Gen")
       (unwind-protect
-          (with-current-buffer "Scripture: Genesis"
-            (should (derived-mode-p 'rcf-sword-reader-mode))
-            (should buffer-read-only)
-            (should (string-match-p "¹In the beginning" (buffer-string)))
-            (should-not cursor-type)
-            (should scroll-lock-mode)
-            (should (eq (lookup-key rcf-sword-reader-mode-map "n") #'next-line))
-            (should-not (string-match-p "cf2" (buffer-string))))
-        (kill-buffer "Scripture: Genesis")))))
+          (progn
+            ;; Open straight at a verse, then move within the open book.
+            (rcf-sword-read-book "Ps 23:3")
+            (with-current-buffer "Scripture: Psalms"
+              (should (looking-at "³He restoreth")))
+            (rcf-sword-read-book "Psalm 23:2")
+            (with-current-buffer "Scripture: Psalms"
+              (should (looking-at "²He maketh")))
+            ;; A chapter alone goes to its first verse.
+            (rcf-sword-read-book "Gen 1")
+            (with-current-buffer "Scripture: Genesis"
+              (should (looking-at "¹In the beginning")))
+            ;; A numbered book name alone is still a book, not a reference.
+            (should (equal (rcf-sword-test--user-error #'rcf-sword-read-book "1 John")
+                           "No verses found for 1 John"))
+            ;; Problems get the usual friendly messages.
+            (should (equal (rcf-sword-test--user-error #'rcf-sword-read-book "Ps 23:9")
+                           "Psalms 23 ends at verse 3, so there's no verse 9"))
+            (should (equal (rcf-sword-test--user-error #'rcf-sword-read-book "Ps 23:5-2")
+                           "The verses in \"23:5-2\" run backwards; did you mean 23:2-5?")))
+        (dolist (name '("Scripture: Psalms" "Scripture: Genesis"))
+          (when (get-buffer name) (kill-buffer name)))))))
+
+(ert-deftest rcf-sword-test-reader-verse-at-point ()
+  "The reader knows the verse at point, and y copies it."
+  (rcf-sword-test--with-db
+    (save-window-excursion
+      (rcf-sword-read-book "Ps")
+      (with-current-buffer "Scripture: Psalms"
+        (unwind-protect
+            (progn
+              ;; Before the first verse there's no verse at point.
+              (goto-char (point-min))
+              (should-not (rcf-sword--verse-at-point))
+              (search-forward "restoreth")
+              (should (equal (rcf-sword--verse-at-point) '(19 23 3)))
+              ;; Between verses, it's the verse before.
+              (search-backward "still waters.")
+              (goto-char (match-end 0))
+              (should (equal (rcf-sword--verse-at-point) '(19 23 2)))
+              ;; y copies the verse at point with its reference.
+              (let ((kill-ring nil))
+                (goto-char (point-min))
+                (search-forward "shepherd")
+                (call-interactively (keymap-lookup nil "y"))
+                (should (equal (car kill-ring)
+                               "The LORD is my shepherd; I shall not want.\n\n -- Psalms 23:1 KJV"))))
+          (kill-buffer))))
+    ;; Passages inserted into the user's buffers carry no verse properties.
+    (with-temp-buffer
+      (rcf-sword-insert-verse "Ps 23:1")
+      (should-not (text-property-not-all (point-min) (point-max) 'rcf-sword-verse nil)))))
+
+(ert-deftest rcf-sword-test-reader-chapters ()
+  "] and [ move between chapters, and imenu lists them."
+  ;; The fixture's Psalms has chapters 1, 2 and 23.
+  (rcf-sword-test--with-db
+    (save-window-excursion
+      (rcf-sword-read-book "Ps")
+      (with-current-buffer "Scripture: Psalms"
+        (unwind-protect
+            (progn
+              (goto-char (point-min))
+              ;; ] from above chapter 1 goes to chapter 1, then onwards,
+              ;; skipping the missing chapter numbers.
+              (dolist (chapter '(1 2 23))
+                (call-interactively (keymap-lookup nil "]"))
+                (should (equal (seq-take (rcf-sword--verse-at-point) 2)
+                               (list 19 chapter))))
+              (should-error (rcf-sword-reader-next-chapter) :type 'user-error)
+              (call-interactively (keymap-lookup nil "["))
+              (should (looking-at "¹Why do the heathen"))
+              (rcf-sword-reader-previous-chapter)
+              (should (looking-at "¹Blessed is the man"))
+              (should-error (rcf-sword-reader-previous-chapter) :type 'user-error)
+              ;; imenu lists every chapter, including the first.
+              (should (equal (mapcar #'car (funcall imenu-create-index-function))
+                             '("Chapter 1" "Chapter 2" "Chapter 23")))
+              (goto-char (cdr (assoc "Chapter 23" (funcall imenu-create-index-function))))
+              (should (looking-at "¹The LORD is my shepherd")))
+          (kill-buffer))))))
+
+(ert-deftest rcf-sword-test-reader-bookmarks ()
+  "Bookmarks save the verse at point and reopen the reader there."
+  (rcf-sword-test--with-db
+    (save-window-excursion
+      (let (bookmark)
+        (with-current-buffer (rcf-sword-read-book "Ps 23:3")
+          (setq bookmark (funcall bookmark-make-record-function))
+          (should (equal (car bookmark) "Psalms 23:3"))
+          (should (equal (bookmark-prop-get bookmark 'reference) "Psalms 23:3"))
+          ;; Above the first verse, the first verse is bookmarked.
+          (goto-char (point-min))
+          (should (equal (car (funcall bookmark-make-record-function)) "Psalms 1:1"))
+          (kill-buffer))
+        ;; Jumping reopens the book at the verse and leaves it current.
+        (with-temp-buffer
+          (rcf-sword-bookmark-jump bookmark)
+          (should (equal (buffer-name) "Scripture: Psalms"))
+          (should (looking-at "³He restoreth"))
+          (kill-buffer))))))
+
+(ert-deftest rcf-sword-test-reader-revert ()
+  "g re-renders the reader from the database, keeping the verse."
+  ;; g re-renders from the database and stays on the same verse.
+  (rcf-sword-test--with-db
+    (save-window-excursion
+      (with-current-buffer (rcf-sword-read-book "Ps 23:2")
+        (unwind-protect
+            (progn
+              (sqlite-execute (rcf-sword--get-db)
+                              "UPDATE Bible SET Scripture=' Changed text.' WHERE Book=19 AND Chapter=1;")
+              (should-not (string-match-p "Changed text" (buffer-string)))
+              (call-interactively (keymap-lookup nil "g"))
+              (should (string-match-p "¹Changed text\\." (buffer-string)))
+              (should (looking-at "²He maketh"))
+              (should buffer-read-only))
+          (kill-buffer))))))
+
+(ert-deftest rcf-sword-test-reader-margins ()
+  "With olivetti, the reader is centered at `rcf-sword-reader-width'."
+  (skip-unless (require 'olivetti nil t))
+  (rcf-sword-test--with-db
+    (save-window-excursion
+      (let ((rcf-sword-reader-width 60))
+        (with-current-buffer (rcf-sword-read-book "Ps")
+          (unwind-protect
+              (progn
+                (should olivetti-mode)
+                ;; The width is set for this buffer only.
+                (should (= olivetti-body-width 60))
+                (should (local-variable-p 'olivetti-body-width))
+                ;; w and c toggle the margins.
+                (call-interactively (keymap-lookup nil "w"))
+                (should-not olivetti-mode)
+                (call-interactively (keymap-lookup nil "c"))
+                (should olivetti-mode)
+                ;; Without olivetti, toggling just says so.
+                (cl-letf (((symbol-function 'require) #'ignore))
+                  (should (equal (rcf-sword-toggle-margins)
+                                 "Install the olivetti package for centered reading"))))
+            (kill-buffer)))))))
+
+;;;; Search
+
+(ert-deftest rcf-sword-test-search ()
+  "Search lists matching verses as buttons that open the reader."
+  (rcf-sword-test--with-db
+    (save-window-excursion
+      (unwind-protect
+          (progn
+            ;; Case is ignored, and footnote markers don't show.
+            (rcf-sword-search "HE LEADETH")
+            (with-current-buffer "*Scripture search*"
+              (should (equal (buffer-string)
+                             (concat "2 verses contain \"HE LEADETH\":\n\n"
+                                     "Psalms 23:2: He maketh me to lie down in green pastures: he leadeth me beside the still waters.\n"
+                                     "Psalms 23:3: He restoreth my soul: he leadeth me in the paths of righteousness for his name's sake.\n")))
+              ;; Point starts on the first hit; n moves to the next, and
+              ;; RET opens the reader there.
+              (should (looking-at "Psalms 23:2"))
+              (call-interactively (keymap-lookup nil "n"))
+              (should (looking-at "Psalms 23:3"))
+              (push-button))
+            (with-current-buffer "Scripture: Psalms"
+              (should (looking-at "³He restoreth")))
+            (rcf-sword-search "void;")
+            (with-current-buffer "*Scripture search*"
+              (should-not (string-match-p "cf2" (buffer-string))))
+            ;; Wildcard characters are literal, and no match is a message.
+            (should (equal (rcf-sword-test--user-error #'rcf-sword-search "%")
+                           "No verses contain \"%\""))
+            (should-error (rcf-sword-search " ") :type 'user-error))
+        (dolist (name '("*Scripture search*" "Scripture: Psalms"))
+          (when (get-buffer name) (kill-buffer name)))))))
+
+;;;; Org links
+
+(ert-deftest rcf-sword-test-org-links ()
+  "Org scripture: links open, export and complete."
+  (require 'org)
+  (require 'rcf-sword-org)
+  (rcf-sword-test--with-db
+    (save-window-excursion
+      (unwind-protect
+          (progn
+            ;; Following a link opens the reader at the verse.
+            (org-link-open-from-string "[[scripture:Ps 23:2]]")
+            (with-current-buffer "Scripture: Psalms"
+              (should (looking-at "²He maketh")))
+            ;; Exported, a link is its description, or else its reference.
+            (should (string-match-p
+                     "\\`The shepherd\n*\\'"
+                     (org-export-string-as "[[scripture:Ps 23:1][The shepherd]]" 'ascii t)))
+            (should (string-match-p
+                     "\\`Ps 23:1\n*\\'"
+                     (org-export-string-as "[[scripture:Ps 23:1]]" 'ascii t)))
+            ;; Completion (C-c C-l) builds a link from a reference.
+            (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "John 3:16")))
+              (should (equal (funcall (org-link-get-parameter "scripture" :complete))
+                             "scripture:John 3:16"))))
+        (when (get-buffer "Scripture: Psalms")
+          (kill-buffer "Scripture: Psalms"))))))
 
 (provide 'rcf-sword-test)
 ;;; rcf-sword-test.el ends here

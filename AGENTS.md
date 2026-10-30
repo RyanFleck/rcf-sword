@@ -4,7 +4,8 @@ Guidance for AI coding agents (and humans) working on `rcf-sword`.
 
 ## What this is
 
-`rcf-sword` is a single-file Emacs Lisp package. It reads scripture from a
+`rcf-sword` is an Emacs Lisp package: one core file, `rcf-sword.el`, plus the
+optional Org links in `rcf-sword-org.el`. It reads scripture from a
 local e-Sword style `.bblx` SQLite database, and either inserts passages into
 the current buffer (org, markdown or plain text) or opens a whole book in a
 read-only reader buffer.
@@ -17,11 +18,12 @@ and to be ready for a MELPA submission.
 
 | Path                 | Purpose                                                    |
 |----------------------|------------------------------------------------------------|
-| `rcf-sword.el`       | The package. All code lives here.                          |
+| `rcf-sword.el`       | The package. All core code lives here.                     |
+| `rcf-sword-org.el`   | Optional Org `scripture:` links. Users `require` it from their init file, because package-lint (rightly) rejects `with-eval-after-load` in packages, and rcf-sword must never load Org itself. |
 | `test/`              | ERT tests. They build a tiny fixture `.bblx` on the fly.   |
 | `recipes/rcf-sword`  | MELPA recipe, kept here for when the package is submitted. |
 | `Makefile`           | `make compile`, `make checkdoc`, `make lint`, `make test`. |
-| `.github/workflows/` | CI that runs the Makefile targets on several Emacs versions. |
+| `.github/workflows/` | CI: the Makefile targets on several Emacs versions, a vanilla `package-vc` install, and a tag/`Version:` check. Actions are pinned to commit SHAs; `.github/dependabot.yml` proposes updates. |
 | `LICENSE`            | GPL-3.0-or-later.                                          |
 
 ## Packaging rules (distilled from the Elisp manual, MELPA and package-lint)
@@ -80,6 +82,8 @@ every change.
     plus a runtime `(require 'x nil t)` or `featurep` check.
 11. **Use `#'` for function references** and avoid obsolete or interactive-only
     functions in Lisp code (`beginning-of-buffer`, `replace-regexp`, ...).
+    Use `if-let*` / `when-let*`, not `if-let` / `when-let`, which are
+    obsolete as of Emacs 31 (CI compiles with warnings as errors there).
 12. **Docstrings pass `checkdoc`.** The first line is a complete sentence, and
     arguments are mentioned in CAPS.
 13. **The file byte-compiles with zero warnings** and passes `package-lint`.
@@ -99,9 +103,9 @@ every change.
     same commit. Squash-merging the release PR does this naturally. A bump
     made early in a multi-commit PR would make `:last-release` pick a commit
     that is missing the later fixes. Don't change `Version:` outside a
-    release.
+    release. CI fails on a `v*` tag that doesn't match `;; Version:`.
 15. **Don't ship non-package files to MELPA.** The recipe restricts `:files` to
-    `rcf-sword.el`. README, tests and CI stay in the repo only.
+    `rcf-sword.el` and `rcf-sword-org.el`. README, tests and CI stay in the repo only.
 16. **AI attribution.** MELPA asks AI-assisted packages to carry an
     `;; Assisted-by: AGENT_NAME:MODEL_VERSION` line under `;; Author:`. Keep
     that line, and have the human maintainer fill in the model version
@@ -127,7 +131,14 @@ Or just run `make` to run all four.
   never `select *`.
 - Book numbering follows the 66-book Protestant canon in
   `rcf-sword-books`. Each element is a `(TESTAMENT NUMBER NAME)` triple.
+  It's a user option (for other languages and canons), so refer to books
+  by number in code, never by English name.
 - Keep functions small and pure where possible (parsing, formatting), so they
   can be unit-tested without a database.
+- Write messages with apostrophes as `(user-error "%s" (format "Can't ..."))`.
+  `user-error`'s format string goes through `format-message`, which curls
+  apostrophes in a UTF-8 locale (as on CI), so the text would vary by
+  machine. Keep `` `symbol' `` quoting in the format string itself, where
+  curling is intended. Run `make` under a UTF-8 locale to match CI.
 - Behaviour that differs by major mode uses `derived-mode-p`. Don't
   `require` org or markdown-mode just to check the mode.

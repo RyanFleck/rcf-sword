@@ -126,13 +126,25 @@ build from the `vX.Y.Z` release tags.
 | Command                           | Does                                                  |
 |-----------------------------------|-------------------------------------------------------|
 | `rcf-sword-insert-verse`          | Prompt for a reference like `John 3:16-18` and insert it. |
+| `rcf-sword-copy-verse`            | Copy a passage as plain text, to paste into email or chat. |
 | `rcf-sword-insert-random-verse`   | Insert a random verse.                                |
 | `rcf-sword-insert-random-proverb` | Insert a random verse from Proverbs.                  |
-| `rcf-sword-read-book`             | Open a whole book in a read-only reader buffer.       |
-| `rcf-sword-close-database`        | Close the database, e.g. after switching translations. |
+| `rcf-sword-read-book`             | Open a whole book in a reader buffer. Add a chapter or verse (`John 5`, `John 5:1`) to open it there. |
+| `rcf-sword-verse-of-the-day`      | Show today's verse, the same all day. `C-u` inserts it. From Lisp, it returns the text, e.g. for your `*scratch*` message. |
+| `rcf-sword-search`                | List every verse containing a word or phrase. Press `RET` on one to open it in the reader. |
+| `rcf-sword-switch-translation`    | Switch between the translations in `rcf-sword-bblx-files`. Open readers update. |
+| `rcf-sword-insert-verse-compare`  | Insert a passage from every translation, one after another, to compare them. |
+| `rcf-sword-close-database`        | Close the database, e.g. after replacing the `.bblx` file. |
 
 References accept partial or abbreviated book names: `Gen 3`, `1 Cor 13:4-7`,
-`Tim 2`.
+`Tim 2`. Ranges can cross chapters (`John 3:16-4:2`), and you can list verses
+(`Ps 23:1, 4-6`). Common abbreviations work too (`Jn 3:16`, `Mt 5`,
+`Song of Songs 2`), and so do numbered books written as `I John`, `First John`
+or `1st Jn`. Add your own abbreviations with `rcf-sword-book-aliases`.
+
+When the cursor is on a reference like `John 3:16` in your text, the prompt
+offers it as the default, so you can just press Enter. Earlier references are
+in the prompt's history: press `M-p` to recall them.
 
 If a reference can't be read, or isn't in your Bible module, rcf-sword says
 what's wrong and inserts nothing. For example:
@@ -144,24 +156,58 @@ what's wrong and inserts nothing. For example:
 | `Ps 23:5-2` | The verses in "23:5-2" run backwards; did you mean 23:2-5?  |
 | `Ps 151`    | Psalms ends at chapter 150, so there's no chapter 151       |
 
-In the reader buffer the cursor is hidden and `scroll-lock-mode` is on, so
-movement keys scroll the text. The keys are:
+In Org files, links like `[[scripture:John 3:16]]` can open the reader at that
+verse. Turn them on with this line in your init file:
+
+```elisp
+(with-eval-after-load 'org (require 'rcf-sword-org))
+```
+
+Then `C-c C-l` offers `scripture:` as a link type and prompts for the
+reference, and exported links show their description (or the reference) as
+plain text.
+
+### The reader
+
+In the reader the cursor is hidden and `scroll-lock-mode` is on, so movement
+keys scroll the text. `M-x imenu` jumps to any chapter. The keys are:
 
 | Key       | Does                                   |
 |-----------|----------------------------------------|
 | `j` / `k` | Scroll down / up.                      |
 | `l`       | Recenter.                              |
 | `n` / `p` | Scroll one line down / up.             |
+| `]` / `[` | Next / previous chapter.               |
+| `C-x r m` | Bookmark the verse under the cursor. `C-x r b` reopens it later, even after restarting Emacs. |
+| `y`       | Copy the verse under the cursor.       |
+| `g`       | Re-read the book from the database, e.g. after switching translations. |
 | `w` / `c` | Toggle centered margins (olivetti).    |
 | `q`       | Close the reader.                      |
+
+### Keys
+
+rcf-sword doesn't bind any global keys. To reach every command from one
+key, bind either a menu or a prefix map. They use the same letters (`i`
+insert, `c` copy, `b` book, `s` search, `d` verse of the day, and so on):
+
+```elisp
+(keymap-global-set "C-c b" #'rcf-sword-menu)          ; a menu that shows the keys
+(keymap-global-set "C-c b" 'rcf-sword-command-map)    ; or keys alone
+```
 
 ## Options
 
 | Variable                      | Default | Purpose                                         |
 |-------------------------------|---------|-------------------------------------------------|
 | `rcf-sword-bblx-file`         | `nil`   | Path to your `.bblx` file. **Required.**        |
+| `rcf-sword-bblx-files`        | `nil`   | All your `.bblx` files, one per translation, for switching and comparing. |
 | `rcf-sword-md-link-reference` | `nil`   | Link the Markdown attribution to Bible Gateway. |
 | `rcf-sword-md-use-footnotes`  | `nil`   | Add a Markdown footnote linking to the passage. |
+| `rcf-sword-books`             | 66 books | Book numbers and names. Rename them for another language, or add books such as the Apocrypha. |
+| `rcf-sword-book-aliases`      | common abbreviations | Extra abbreviations, like `Jn` for John. |
+| `rcf-sword-org-before` / `rcf-sword-org-after` | quote block | Text around a passage in org. `%s` is the reference. Use `#+begin_verse` for a verse block. |
+| `rcf-sword-attribution-format` | `-- %s` | The attribution line in Markdown and plain text, e.g. `— %s`. |
+| `rcf-sword-insert-verse-numbers` | `nil` | Show verse numbers (¹²³) in inserted passages. `C-u` flips it for one insertion. |
 | `rcf-sword-reader-width`      | `72`    | Body width for centered reading.                |
 
 ## Development
