@@ -155,6 +155,17 @@ what's wrong and inserts nothing. For example:
 | `Ps 23:5-2` | The verses in "23:5-2" run backwards; did you mean 23:2-5?  |
 | `Ps 151`    | Psalms ends at chapter 150, so there's no chapter 151       |
 
+In Org files, links like `[[scripture:John 3:16]]` can open the reader at that
+verse. Turn them on with this line in your init file:
+
+```elisp
+(with-eval-after-load 'org (require 'rcf-sword-org))
+```
+
+Then `C-c C-l` offers `scripture:` as a link type and prompts for the
+reference, and exported links show their description (or the reference) as
+plain text.
+
 `M-x imenu` in the reader jumps to any chapter. In the reader buffer the cursor is hidden and `scroll-lock-mode` is on, so
 movement keys scroll the text. The keys are:
 

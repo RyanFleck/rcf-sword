@@ -50,6 +50,8 @@
 ;; Passages are formatted for the current buffer: an org quote block in
 ;; `org-mode', a block quote in `markdown-mode', and plain text otherwise.
 ;;
+;; For Org links like [[scripture:John 3:16]], see rcf-sword-org.el.
+;;
 ;; markdown-mode and olivetti are optional.  Markdown formatting applies to
 ;; any buffer whose mode derives from `markdown-mode', and footnotes (see
 ;; `rcf-sword-md-use-footnotes') use its footnote command.  olivetti, when

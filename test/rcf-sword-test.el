@@ -747,6 +747,31 @@ It contains VERSES, a list of (BOOK CHAPTER VERSE TEXT)."
         (dolist (name '("*Scripture search*" "Scripture: Psalms"))
           (when (get-buffer name) (kill-buffer name)))))))
 
+(ert-deftest rcf-sword-test-org-links ()
+  (require 'org)
+  (require 'rcf-sword-org)
+  (rcf-sword-test--with-db
+    (save-window-excursion
+      (unwind-protect
+          (progn
+            ;; Following a link opens the reader at the verse.
+            (org-link-open-from-string "[[scripture:Ps 23:2]]")
+            (with-current-buffer "Scripture: Psalms"
+              (should (looking-at "²He maketh")))
+            ;; Exported, a link is its description, or else its reference.
+            (should (string-match-p
+                     "\\`The shepherd\n*\\'"
+                     (org-export-string-as "[[scripture:Ps 23:1][The shepherd]]" 'ascii t)))
+            (should (string-match-p
+                     "\\`Ps 23:1\n*\\'"
+                     (org-export-string-as "[[scripture:Ps 23:1]]" 'ascii t)))
+            ;; Completion (C-c C-l) builds a link from a reference.
+            (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "John 3:16")))
+              (should (equal (funcall (org-link-get-parameter "scripture" :complete))
+                             "scripture:John 3:16"))))
+        (when (get-buffer "Scripture: Psalms")
+          (kill-buffer "Scripture: Psalms"))))))
+
 (ert-deftest rcf-sword-test-read-book ()
   (rcf-sword-test--with-db
     (save-window-excursion

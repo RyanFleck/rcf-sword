@@ -10,6 +10,9 @@ INIT_PACKAGES := --eval "(progn \
 
 BATCH := $(EMACS) -Q --batch -L . $(INIT_PACKAGES)
 
+# rcf-sword.el is the package; rcf-sword-org.el is its optional Org links.
+FILES := rcf-sword.el rcf-sword-org.el
+
 .PHONY: all deps compile checkdoc lint test clean
 
 all: compile checkdoc lint test
@@ -22,14 +25,17 @@ deps:
 
 compile: deps
 	$(BATCH) --eval "(setq byte-compile-error-on-warn t)" \
-	  -f batch-byte-compile rcf-sword.el
+	  -f batch-byte-compile $(FILES)
 
 checkdoc:
-	$(EMACS) -Q --batch --eval "(checkdoc-file \"rcf-sword.el\")"
+	for f in $(FILES); do \
+	  $(EMACS) -Q --batch --eval "(checkdoc-file \"$$f\")" || exit 1; \
+	done
 
 lint: deps
 	$(BATCH) --eval "(require 'package-lint)" \
-	  -f package-lint-batch-and-exit rcf-sword.el
+	  --eval "(setq package-lint-main-file \"rcf-sword.el\")" \
+	  -f package-lint-batch-and-exit $(FILES)
 
 test: deps
 	$(BATCH) -L test -l rcf-sword-test -f ert-run-tests-batch-and-exit

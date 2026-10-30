@@ -17,7 +17,8 @@ and to be ready for a MELPA submission.
 
 | Path                 | Purpose                                                    |
 |----------------------|------------------------------------------------------------|
-| `rcf-sword.el`       | The package. All code lives here.                          |
+| `rcf-sword.el`       | The package. All core code lives here.                     |
+| `rcf-sword-org.el`   | Optional Org `scripture:` links. Users `require` it from their init file, because package-lint (rightly) rejects `with-eval-after-load` in packages, and rcf-sword must never load Org itself. |
 | `test/`              | ERT tests. They build a tiny fixture `.bblx` on the fly.   |
 | `recipes/rcf-sword`  | MELPA recipe, kept here for when the package is submitted. |
 | `Makefile`           | `make compile`, `make checkdoc`, `make lint`, `make test`. |
