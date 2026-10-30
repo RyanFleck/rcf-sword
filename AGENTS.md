@@ -36,8 +36,8 @@ every change.
 2. **First line**: `;;; rcf-sword.el --- Summary  -*- lexical-binding: t; -*-`.
    The summary is short, has no trailing period, and doesn't repeat "Emacs".
 3. **Library headers** go before `;;; Commentary:`, in the standard format:
-   `Author`, `Maintainer`, `Version`, `Package-Requires`, `Keywords`, `URL`,
-   and an `SPDX-License-Identifier`. `Package-Requires` is a list on one line,
+   `Author`, `Assisted-by` (see rule 16), `Maintainer`, `Version`,
+   `Package-Requires`, `Keywords`, `URL`, and an `SPDX-License-Identifier`. `Package-Requires` is a list on one line,
    e.g. `((emacs "29.1") (s "1.13.0"))`. `Keywords` use standard
    `finder-known-keywords`, so package-lint stays quiet.
 4. **License boilerplate** (the GPL notice) sits above `;;; Commentary:`, and
@@ -64,10 +64,30 @@ every change.
 12. **Docstrings pass `checkdoc`.** The first line is a complete sentence, and
     arguments are mentioned in CAPS.
 13. **The file byte-compiles with zero warnings** and passes `package-lint`.
-14. **Versioning.** Bump `;; Version:` for user-visible changes and tag
-    releases `vX.Y.Z`. MELPA Stable and `package-vc` both read git tags.
+14. **Versioning and releases.** A release is a commit that changes the
+    `;; Version:` header, tagged `vX.Y.Z`. The install routes find releases
+    in different ways:
+    - **MELPA Stable** builds from git tags.
+    - **`package-vc`** ignores tags. `package-vc-install` installs the
+      newest commit by default. With `:last-release` (or a `C-u` prefix),
+      it installs the latest commit that changed the `Version:` header.
+    - **`use-package :vc`** (Emacs 30+) defaults to `:last-release`, and
+      `:rev :newest` opts into the newest commit.
+    - **MELPA** (unstable) and straight.el/elpaca by default track the
+      newest commit.
+
+    So make the `Version:` bump the final change of a release, and tag that
+    same commit. Squash-merging the release PR does this naturally. A bump
+    made early in a multi-commit PR would make `:last-release` pick a commit
+    that is missing the later fixes. Don't change `Version:` outside a
+    release.
 15. **Don't ship non-package files to MELPA.** The recipe restricts `:files` to
     `rcf-sword.el`. README, tests and CI stay in the repo only.
+16. **AI attribution.** MELPA asks AI-assisted packages to carry an
+    `;; Assisted-by: AGENT_NAME:MODEL_VERSION` line under `;; Author:`. Keep
+    that line, and have the human maintainer fill in the model version
+    before submitting to MELPA. MELPA also expects the human author to be
+    the first and most thorough reviewer of AI-written code.
 
 ## Before you commit
 
