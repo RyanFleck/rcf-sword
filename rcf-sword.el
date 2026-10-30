@@ -118,6 +118,12 @@ The footnote links to Bible Gateway's page comparing translations.
 Requires `markdown-mode'."
   :type 'boolean)
 
+(defcustom rcf-sword-insert-verse-numbers nil
+  "When non-nil, inserted passages show verse numbers, like \"¹⁶For God\".
+A prefix argument to `rcf-sword-insert-verse' flips this for one
+insertion.  The book reader always shows verse numbers."
+  :type 'boolean)
+
 (defcustom rcf-sword-reader-width 72
   "Body width, in columns, used when centering text in the book reader.
 Only takes effect when olivetti is installed."
@@ -677,7 +683,7 @@ nothing and say so."
       (cond
        (org? (insert "#+verse: " info "\n#+begin_quote\n"))
        (markdown? (insert "> ")))
-      (rcf-sword--insert-lines verses nil)
+      (rcf-sword--insert-lines verses rcf-sword-insert-verse-numbers)
       ;; Close the quote and add the attribution.
       (cond
        (org?
@@ -706,8 +712,10 @@ nothing and say so."
 ;;;; Commands
 
 ;;;###autoload
-(defun rcf-sword-insert-verse (reference)
+(defun rcf-sword-insert-verse (reference &optional flip-numbers)
   "Insert the passage described by REFERENCE at point.
+With a prefix argument (FLIP-NUMBERS), show verse numbers if
+`rcf-sword-insert-verse-numbers' is off, or hide them if it's on.
 Interactively, offer the reference at point as the default; earlier
 references are in the history (\\`M-p').
 REFERENCE looks like \"Gen 3\" (a whole chapter), \"John 3:16\" or
@@ -715,8 +723,11 @@ REFERENCE looks like \"Gen 3\" (a whole chapter), \"John 3:16\" or
 passage is formatted for the current major mode; see
 `rcf-sword--insert-passage'.  If REFERENCE is malformed or isn't in
 the database, say what's wrong and insert nothing."
-  (interactive (list (rcf-sword--read-reference "Enter verse")))
-  (rcf-sword--insert-passage (rcf-sword--lookup reference)))
+  (interactive (list (rcf-sword--read-reference "Enter verse")
+                     current-prefix-arg))
+  (let ((rcf-sword-insert-verse-numbers
+         (xor rcf-sword-insert-verse-numbers flip-numbers)))
+    (rcf-sword--insert-passage (rcf-sword--lookup reference))))
 
 ;;;###autoload
 (defun rcf-sword-insert-random-verse ()

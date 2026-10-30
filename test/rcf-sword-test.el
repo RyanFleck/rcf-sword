@@ -378,6 +378,24 @@
     (should (equal (rcf-sword-test--user-error #'rcf-sword-read-book "Foo")
                    "No book matches \"Foo\"; try a name like \"Gen\", \"1 Cor\" or \"Psalms\""))))
 
+(ert-deftest rcf-sword-test-insert-verse-numbers ()
+  (rcf-sword-test--with-db
+    (with-temp-buffer
+      ;; Off by default; a prefix argument turns them on for one insertion.
+      (rcf-sword-insert-verse "Ps 23:1-2")
+      (should-not (string-match-p "¹" (buffer-string)))
+      (erase-buffer)
+      (rcf-sword-insert-verse "Ps 23:1-2" '(4))
+      (should (string-match-p "\\`¹The LORD.*\n\n²He maketh" (buffer-string)))
+      ;; With the option on, the prefix argument turns them off.
+      (let ((rcf-sword-insert-verse-numbers t))
+        (erase-buffer)
+        (rcf-sword-insert-verse "Ps 23:1")
+        (should (string-prefix-p "¹The LORD" (buffer-string)))
+        (erase-buffer)
+        (rcf-sword-insert-verse "Ps 23:1" '(4))
+        (should (string-prefix-p "The LORD" (buffer-string)))))))
+
 (ert-deftest rcf-sword-test-random-is-fair ()
   ;; Every verse is equally likely, wherever it is.  The fixture has 7
   ;; verses in 3 books, so with the old book-then-chapter-then-verse
