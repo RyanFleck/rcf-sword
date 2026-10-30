@@ -6,7 +6,7 @@
 ;; Assisted-by: Claude Code
 ;; Maintainer: Ryan Fleck <dev@ryanfleck.ca>
 ;; Created: 2024-08-01
-;; Version: 0.2.2
+;; Version: 0.3.0
 ;; Package-Requires: ((emacs "29.1"))
 ;; Keywords: convenience, wp
 ;; URL: https://github.com/RyanFleck/rcf-sword
@@ -84,6 +84,16 @@
 ;;            references and passages missing from the database now get
 ;;            a friendly message saying what's wrong.  (The v0.2.1 tag
 ;;            marks a docs-only commit, so this release is 0.2.2.)
+;; 2026-10-30 0.3.0: Reader: open at a verse, ] and [ for chapters,
+;;            imenu, bookmarks, g to refresh, y to copy a verse, and
+;;            2x faster rendering.  References: abbreviations (Jn,
+;;            I John), ranges across chapters, verse lists, and the
+;;            reference at point as the default.  New commands: copy,
+;;            search, verse of the day, switch and compare
+;;            translations, and a menu and prefix keymap.  Fair random
+;;            verses, optional verse numbers, customizable formatting,
+;;            book names and canon, a check that the file is a Bible
+;;            module, and Org scripture: links in rcf-sword-org.el.
 
 ;;; Code:
 
