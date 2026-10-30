@@ -1,4 +1,4 @@
-;;; rcf-sword-test.el --- Tests for rcf-sword  -*- lexical-binding: t; -*-
+;;; rcf-sword-test.el --- Tests for rcf-sword  -*- lexical-binding: t; no-byte-compile: t; -*-
 
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -6,6 +6,10 @@
 
 ;; ERT tests.  Database tests build a tiny .bblx fixture in a temp file.
 ;; Run with `make test'.
+;;
+;; `no-byte-compile' is set above because package-vc byte-compiles every
+;; file in the repository on install, and these tests aren't part of the
+;; package.  Without it, users would see test warnings when installing.
 
 ;;; Code:
 
