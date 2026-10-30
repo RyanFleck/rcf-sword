@@ -38,7 +38,7 @@ every change.
 3. **Library headers** go before `;;; Commentary:`, in the standard format:
    `Author`, `Assisted-by` (see rule 16), `Maintainer`, `Version`,
    `Package-Requires`, `Keywords`, `URL`, and an `SPDX-License-Identifier`. `Package-Requires` is a list on one line,
-   e.g. `((emacs "29.1") (s "1.13.0"))`. `Keywords` use standard
+   currently just `((emacs "29.1"))`. `Keywords` use standard
    `finder-known-keywords`, so package-lint stays quiet.
 4. **License boilerplate** (the GPL notice) sits above `;;; Commentary:`, and
    a `LICENSE` file sits at the repository root.
@@ -56,7 +56,14 @@ every change.
 9. **Interactive entry points carry `;;;###autoload` cookies**, so that
    `package.el` / `package-vc` generate autoloads and nothing has to be
    `require`d eagerly.
-10. **Only hard dependencies go in `Package-Requires`.** Optional integrations
+10. **No third-party dependencies.** Use built-in libraries only, so the
+    package installs on a vanilla Emacs with no archive set up. For string
+    handling, use the built-ins rather than s.el: `split-string` (with a
+    `regexp-quote`d separator), `string-trim`, `string-join`,
+    `string-prefix-p`, `string-suffix-p` and `string-search` /
+    `string-match-p`. They all exist in Emacs 29.1, the minimum version.
+    The Makefile doesn't install s.el, so a stray `s-` call fails the build.
+    **Only hard dependencies go in `Package-Requires`.** Optional integrations
     (markdown-mode, olivetti) are used through `declare-function` / `defvar`
     plus a runtime `(require 'x nil t)` or `featurep` check.
 11. **Use `#'` for function references** and avoid obsolete or interactive-only

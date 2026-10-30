@@ -2,6 +2,36 @@
 
 Emacs package for reading the Bible from a local SQLite (`.bblx`) file.
 
+## Quick start
+
+You need:
+
+- **Emacs 29.1 or newer.** To check that your Emacs has SQLite, press
+  `M-:`, type `(sqlite-available-p)` and press Enter. It should say `t`.
+- **`git`**, which Emacs uses to download the package.
+- **A Bible module** in e-Sword's `.bblx` format, saved somewhere like
+  `~/bibles/`.
+
+**1. Add these lines** to your Emacs init file, `~/.emacs.d/init.el`
+(create the file if it doesn't exist). Change the path to your `.bblx` file.
+
+```elisp
+(unless (package-installed-p 'rcf-sword)
+  (package-vc-install "https://github.com/RyanFleck/rcf-sword" :last-release))
+
+(setq rcf-sword-bblx-file "~/bibles/my-translation.bblx")
+```
+
+**2. Restart Emacs.** The first start downloads and installs the package.
+
+**3. Try it.** Press `M-x`, run `rcf-sword-insert-verse`, and type
+`John 3:16`. Or run `rcf-sword-read-book` and type `Psalms`.
+
+That's it. There's nothing else to install, and no package archive to set
+up. To update later, run `M-x package-vc-upgrade` and choose `rcf-sword`.
+
+## What it does
+
 `rcf-sword` reads an e-Sword style `.bblx` database with the SQLite support
 built into Emacs 29+. With it you can insert passages into your notes, or read
 a whole book in a distraction-free reader buffer.
@@ -17,13 +47,17 @@ a whole book in a distraction-free reader buffer.
 
 - Emacs 29.1 or newer, built with SQLite support. Check with
   `M-: (sqlite-available-p)`.
-- [`s`](https://github.com/magnars/s.el), installed automatically.
+- `git`, for installing straight from GitHub.
+- No other packages. rcf-sword only uses libraries built into Emacs.
 - Optional: [`markdown-mode`](https://github.com/jrblevin/markdown-mode)
   for footnotes, and [`olivetti`](https://github.com/rnkn/olivetti) for
   centered reading.
 - A `.bblx` Bible module.
 
-## Installation
+## Other ways to install
+
+The quick start uses `package-vc`. These are the details, and the
+alternatives if you use another package manager.
 
 ### Emacs 29+ built-in (`package-vc`)
 

@@ -55,7 +55,12 @@
   (should (equal (rcf-sword--book-number "Tim") 54))
   ;; "Job" is a prefix of Job, so prefer it over substrings.
   (should (equal (rcf-sword--book-number "Job") 18))
-  (should-not (rcf-sword--book-number "Nonexistent")))
+  (should-not (rcf-sword--book-number "Nonexistent"))
+  ;; Substring matches ignore case, and treat regexp characters literally.
+  (should (equal (rcf-sword--book-number "TIM") 54))
+  (should (equal (rcf-sword--book-number "of Sol") 22))
+  (should-not (rcf-sword--book-number "."))
+  (should-not (rcf-sword--book-number "Gen.*")))
 
 (ert-deftest rcf-sword-test-book-numbers-are-sequential ()
   (should (equal (mapcar #'cadr rcf-sword-books) (number-sequence 1 66))))
@@ -64,7 +69,9 @@
   (should (equal (rcf-sword--parse-reference "Genesis 6") '("Genesis" 6 nil)))
   (should (equal (rcf-sword--parse-reference "Genesis 6:1") '("Genesis" 6 (1))))
   (should (equal (rcf-sword--parse-reference "Genesis 6:1-2") '("Genesis" 6 (1 2))))
-  (should (equal (rcf-sword--parse-reference "  1 Cor 13:4-7 ") '("1 Cor" 13 (4 7)))))
+  (should (equal (rcf-sword--parse-reference "  1 Cor 13:4-7 ") '("1 Cor" 13 (4 7))))
+  (should (equal (rcf-sword--parse-reference "Song  of Solomon 2") '("Song of Solomon" 2 nil)))
+  (should (equal (rcf-sword--parse-reference "Jude") '("" 0 nil))))
 
 (ert-deftest rcf-sword-test-superscript ()
   (should (equal (rcf-sword--superscript 0) "⁰"))
@@ -84,6 +91,12 @@
 
 (ert-deftest rcf-sword-test-loading-has-no-side-effects ()
   (should-not rcf-sword--db))
+
+(ert-deftest rcf-sword-test-no-third-party-dependencies ()
+  ;; The package only uses built-in libraries, so it installs on a vanilla
+  ;; Emacs.  The Makefile doesn't install s.el, so a stray s- call would
+  ;; also fail byte-compilation.
+  (should-not (featurep 's)))
 
 ;;;; Database-backed
 

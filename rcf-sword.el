@@ -6,8 +6,8 @@
 ;; Assisted-by: Claude Code
 ;; Maintainer: Ryan Fleck <dev@ryanfleck.ca>
 ;; Created: 2024-08-01
-;; Version: 0.2.0
-;; Package-Requires: ((emacs "29.1") (s "1.13.0"))
+;; Version: 0.2.1
+;; Package-Requires: ((emacs "29.1"))
 ;; Keywords: convenience, wp
 ;; URL: https://github.com/RyanFleck/rcf-sword
 ;; SPDX-License-Identifier: GPL-3.0-or-later
@@ -70,12 +70,14 @@
 ;;            `scroll-lock-mode', adds n/p keys and defaults to a 72
 ;;            column body.  Books are grouped by section.  Examples
 ;;            no longer name a particular translation.
+;; 2026-10-30 0.2.1: Use built-in string functions instead of s.el, so
+;;            the package has no dependencies beyond Emacs 29.1 and
+;;            installs on a vanilla Emacs without MELPA.
 
 ;;; Code:
 
 (require 'cl-lib)
 (require 'seq)
-(require 's)
 (require 'subr-x)
 (require 'url-util)
 
@@ -216,10 +218,12 @@ to match what the user types and to label inserted passages.")
 First look for a name that starts with PARTIAL, then for one that
 contains it, each time in canonical order.  Matching ignores case,
 so \"jo\" finds Joshua and \"tim\" finds 1 Timothy."
-  (or (seq-find (lambda (book) (s-starts-with? partial (nth 2 book) t))
+  (or (seq-find (lambda (book) (string-prefix-p partial (nth 2 book) t))
                 rcf-sword-books)
-      (seq-find (lambda (book) (s-contains? partial (nth 2 book) t))
-                rcf-sword-books)))
+      (let ((case-fold-search t)
+            (regexp (regexp-quote partial)))
+        (seq-find (lambda (book) (string-match-p regexp (nth 2 book)))
+                  rcf-sword-books))))
 
 (defun rcf-sword--book-number (partial)
   "Return the book number matching PARTIAL, or nil."
@@ -386,13 +390,13 @@ word, as typed (it may be partial, and is \"\" if STR is one word).
 CHAPTER is a number, 0 if the last word doesn't start with one.
 VERSES is nil for a whole chapter, (VERSE) for one verse, or
 \(FIRST LAST) for a range."
-  (let* ((words (s-split " " (s-trim str) t))
+  (let* ((words (split-string (string-trim str) " " t))
          (chapter-verse (car (last words)))
-         (book (s-join " " (butlast words)))
-         (chapter-verse-split (s-split ":" chapter-verse))
+         (book (string-join (butlast words) " "))
+         (chapter-verse-split (split-string chapter-verse ":"))
          (verses? (length> chapter-verse-split 1))
          (chapter (car chapter-verse-split))
-         (verses (s-split "-" (car (last chapter-verse-split)) t)))
+         (verses (split-string (car (last chapter-verse-split)) "-" t)))
     (list book
           (string-to-number chapter)
           (when verses? (mapcar #'string-to-number verses)))))
@@ -427,7 +431,7 @@ Compared case-insensitively against the verse's whole first word.")
 That is the case when its first word is one of
 `rcf-sword--conjunctions' (in any case), or starts with a lowercase
 letter.  A verse starting with a quote mark or digit doesn't count."
-  (let ((first-word (car (s-split " " text t))))
+  (let ((first-word (car (split-string text " " t))))
     (and first-word
          (or (member (downcase first-word) rcf-sword--conjunctions)
              (let ((case-fold-search nil))
@@ -464,7 +468,7 @@ left at the end of the inserted text."
         (paragraph-break (if (derived-mode-p 'markdown-mode) "\n> \n> " "\n\n"))
         (previous nil))
     (dolist (verse verses)
-      (let ((text (s-trim (nth 3 verse))))
+      (let ((text (string-trim (nth 3 verse))))
         (when previous
           (insert (if (or (rcf-sword--end-is-continuation-p previous)
                           (rcf-sword--start-is-continuation-p text))

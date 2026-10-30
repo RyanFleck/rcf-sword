@@ -17,7 +17,7 @@ all: compile checkdoc lint test
 deps:
 	$(BATCH) --eval "(progn \
 	  (package-refresh-contents) \
-	  (dolist (p '(s package-lint markdown-mode olivetti)) \
+	  (dolist (p '(package-lint markdown-mode olivetti)) \
 	    (unless (package-installed-p p) (package-install p))))"
 
 compile: deps
