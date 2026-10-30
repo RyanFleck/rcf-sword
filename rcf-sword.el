@@ -40,12 +40,16 @@
 ;;   M-x rcf-sword-insert-random-verse   Insert a random verse.
 ;;   M-x rcf-sword-insert-random-proverb Insert a random proverb.
 ;;   M-x rcf-sword-read-book             Read a whole book in a reader buffer.
+;;   M-x rcf-sword-close-database        Close the database, e.g. after
+;;                                       switching translations.
 ;;
 ;; Passages are formatted for the current buffer: an org quote block in
 ;; `org-mode', a block quote in `markdown-mode', and plain text otherwise.
 ;;
-;; markdown-mode (for footnotes) and olivetti (for centered reading) are
-;; optional; they are used when installed.
+;; markdown-mode and olivetti are optional.  Markdown formatting applies to
+;; any buffer whose mode derives from `markdown-mode', and footnotes (see
+;; `rcf-sword-md-use-footnotes') use its footnote command.  olivetti, when
+;; installed, centers the text in the book reader.
 
 ;; Changelog:
 ;;
@@ -64,7 +68,8 @@
 ;;            olivetti are optional, and Lamentations is book 25.
 ;; 2026-10-30 0.2.0: Reader hides the cursor, scrolls with
 ;;            `scroll-lock-mode', adds n/p keys and defaults to a 72
-;;            column body.  Books are grouped by section.
+;;            column body.  Books are grouped by section.  Examples
+;;            no longer name a particular translation.
 
 ;;; Code:
 
@@ -74,6 +79,8 @@
 (require 'subr-x)
 (require 'url-util)
 
+;; Optional integrations.  These are only used after checking that the
+;; package is available, so they aren't listed in Package-Requires.
 (declare-function markdown-insert-footnote "ext:markdown-mode" ())
 (declare-function olivetti-mode "ext:olivetti" (&optional arg))
 (defvar olivetti-mode)
@@ -94,20 +101,25 @@ For example \"~/bibles/my-translation.bblx\"."
   :type '(choice (const :tag "Unset" nil) file))
 
 (defcustom rcf-sword-md-link-reference nil
-  "When non-nil, link the Markdown attribution line to Bible Gateway."
+  "When non-nil, link the Markdown attribution line to Bible Gateway.
+The link opens the passage in the same translation, using the
+abbreviation from the database."
   :type 'boolean)
 
 (defcustom rcf-sword-md-use-footnotes nil
   "When non-nil, add a Markdown footnote linking to the passage.
+The footnote links to Bible Gateway's page comparing translations.
 Requires `markdown-mode'."
   :type 'boolean)
 
 (defcustom rcf-sword-reader-width 72
-  "Body width used when centering text in the book reader."
+  "Body width, in columns, used when centering text in the book reader.
+Only takes effect when olivetti is installed."
   :type 'integer)
 
 ;;;; Book data
 
+;; The 66-book Protestant canon, in the order e-Sword numbers books.
 ;; Sorry to those who use more than 66 books - you'll have to hack this
 ;; for yourself.
 (defconst rcf-sword-books
@@ -191,16 +203,19 @@ Requires `markdown-mode'."
     ;; Prophecy
     (2 66 "Revelation"))
   "Books of the Bible as (TESTAMENT NUMBER NAME) triples.
-NUMBER matches the Book column of the .bblx database.")
+TESTAMENT is 1 for the Old Testament and 2 for the New.  NUMBER
+matches the Book column of the .bblx database.  NAME is used both
+to match what the user types and to label inserted passages.")
 
 (defun rcf-sword--book-names ()
   "Return the names of all books in `rcf-sword-books'."
   (mapcar #'cl-caddr rcf-sword-books))
 
 (defun rcf-sword--find-book (partial)
-  "Return the book triple whose name best matches PARTIAL.
-Prefer a book whose name starts with PARTIAL, then one that contains
-it.  Matching ignores case."
+  "Return the first book triple whose name matches PARTIAL, or nil.
+First look for a name that starts with PARTIAL, then for one that
+contains it, each time in canonical order.  Matching ignores case,
+so \"jo\" finds Joshua and \"tim\" finds 1 Timothy."
   (or (seq-find (lambda (book) (s-starts-with? partial (nth 2 book) t))
                 rcf-sword-books)
       (seq-find (lambda (book) (s-contains? partial (nth 2 book) t))
@@ -211,21 +226,31 @@ it.  Matching ignores case."
   (nth 1 (rcf-sword--find-book partial)))
 
 (defun rcf-sword--book-name-from-number (number)
-  "Return the name of book NUMBER."
+  "Return the name of book NUMBER, or nil if there is no such book."
   (nth 2 (seq-find (lambda (book) (equal (nth 1 book) number))
                    rcf-sword-books)))
 
 ;;;; Database
 
-;; The database must have the following format, typically shipped with
-;; a '.bblx' extension.  Table 'Bible':
+;; The database is an e-Sword Bible module, a SQLite file usually shipped
+;; with a '.bblx' extension.  Inspect one with sqlite3 (.tables,
+;; .headers on).  This package reads two tables.
+;;
+;; Table 'Bible', one row per verse:
 ;;
 ;; Book  Chapter  Verse  Scripture
 ;; -----------------------------------------------------------------------
 ;; 1     1        1      In the beginning God created the heaven and the ...
 ;; 1     1        2      And the earth was without form, and void; and ...
 ;;
-;; Table 'Details' holds the translation's Description and Abbreviation.
+;; Book numbers follow `rcf-sword-books'.  Scripture may contain RTF
+;; footnote markup like {\cf2\super [1]}, which is stripped on insertion.
+;;
+;; Table 'Details', one row: the translation's Description (its full name)
+;; and Abbreviation.
+;;
+;; The connection is opened lazily by `rcf-sword--get-db', so loading
+;; this file never touches the disk.
 
 (defvar rcf-sword--db nil
   "Open SQLite connection to the scripture database, or nil.")
@@ -237,12 +262,16 @@ it.  Matching ignores case."
   "Cached (DESCRIPTION ABBREVIATION) for `rcf-sword--db'.")
 
 (defun rcf-sword--get-db ()
-  "Return a connection to `rcf-sword-bblx-file', opening it if needed."
+  "Return a connection to `rcf-sword-bblx-file', opening it if needed.
+If `rcf-sword-bblx-file' has changed since the connection was opened,
+close the old connection and open the new file.  Signal a `user-error'
+if SQLite is unavailable or the file is unset or unreadable."
   (unless (and (fboundp 'sqlite-available-p) (sqlite-available-p))
     (user-error "The rcf-sword package needs Emacs 29+ built with SQLite support"))
   (unless rcf-sword-bblx-file
     (user-error "Set `rcf-sword-bblx-file' to the path of your .bblx file"))
   (let ((file (expand-file-name rcf-sword-bblx-file)))
+    ;; Check first: `sqlite-open' would silently create an empty database.
     (unless (file-readable-p file)
       (user-error "Can't read scripture database %s" file))
     (unless (and rcf-sword--db (equal file rcf-sword--db-file))
@@ -263,11 +292,15 @@ changing the file behind `rcf-sword-bblx-file'."
         rcf-sword--db-info nil))
 
 (defun rcf-sword--query (sql &optional values)
-  "Run SQL with VALUES against the scripture database."
+  "Run SQL with VALUES against the scripture database.
+VALUES fills in the ? placeholders in SQL.  Return a list of rows,
+each a list of column values."
   (sqlite-select (rcf-sword--get-db) sql values))
 
 (defun rcf-sword--db-info ()
-  "Return the translation's (DESCRIPTION ABBREVIATION), cached."
+  "Return the translation's (DESCRIPTION ABBREVIATION).
+Read from the Details table once, then cached until the database is
+closed or changed."
   (or rcf-sword--db-info
       (setq rcf-sword--db-info
             (car (rcf-sword--query
@@ -282,12 +315,17 @@ changing the file behind `rcf-sword-bblx-file'."
   (cadr (rcf-sword--db-info)))
 
 (defconst rcf-sword--verse-columns "Book, Chapter, Verse, Scripture"
-  "Columns selected for each verse, in the order the code expects.")
+  "Columns selected for each verse, in the order the code expects.
+Code reads verses positionally, as (BOOK CHAPTER VERSE TEXT), so name
+the columns rather than relying on the table's own column order.")
 
 (defun rcf-sword--verses (book &optional chapter verse-min verse-max)
-  "Return verses of BOOK, optionally limited to CHAPTER.
-When VERSE-MIN and VERSE-MAX are non-nil, limit the result to that
-inclusive range.  Each verse is (BOOK CHAPTER VERSE TEXT)."
+  "Return the verses of BOOK, in order.
+With CHAPTER, return only that chapter.  With VERSE-MIN too, return
+verses VERSE-MIN to VERSE-MAX inclusive; VERSE-MAX defaults to
+VERSE-MIN, giving a single verse.  CHAPTER is required when VERSE-MIN
+is given.  Each verse is (BOOK CHAPTER VERSE TEXT); the result is nil
+if nothing matches."
   (cond
    (verse-min
     (rcf-sword--query
@@ -308,8 +346,14 @@ inclusive range.  Each verse is (BOOK CHAPTER VERSE TEXT)."
 
 ;;;; Random verses
 
+;; A random verse is chosen by picking a book, then a chapter in it, then
+;; a verse in that chapter, each uniformly.  Verses in short books are
+;; therefore more likely than verses in long ones.  Chapters and verses
+;; are assumed to be numbered from 1 without gaps.
+
 (defun rcf-sword--random-chapter (book)
-  "Return a random chapter number in BOOK."
+  "Return a random chapter number in BOOK.
+Return 1 if BOOK isn't in the database."
   (let ((max-chapter
          (or (caar (rcf-sword--query
                     "SELECT MAX(Chapter) FROM Bible WHERE Book=?;" (list book)))
@@ -317,7 +361,8 @@ inclusive range.  Each verse is (BOOK CHAPTER VERSE TEXT)."
     (1+ (random (max 1 max-chapter)))))
 
 (defun rcf-sword--random-verse-number (book chapter)
-  "Return a random verse number in BOOK and CHAPTER."
+  "Return a random verse number in BOOK and CHAPTER.
+Return 1 if the chapter isn't in the database."
   (let ((max-verse
          (or (caar (rcf-sword--query
                     "SELECT MAX(Verse) FROM Bible WHERE Book=? AND Chapter=?;"
@@ -326,7 +371,8 @@ inclusive range.  Each verse is (BOOK CHAPTER VERSE TEXT)."
     (1+ (random (max 1 max-verse)))))
 
 (defun rcf-sword--random-verse-in-book (book)
-  "Return a random verse from BOOK as a list of one verse, or nil."
+  "Return a random verse from BOOK as a list of one verse.
+Return nil if BOOK isn't in the database."
   (let* ((chapter (rcf-sword--random-chapter book))
          (verse (rcf-sword--random-verse-number book chapter)))
     (rcf-sword--verses book chapter verse verse)))
@@ -335,8 +381,11 @@ inclusive range.  Each verse is (BOOK CHAPTER VERSE TEXT)."
 
 (defun rcf-sword--parse-reference (str)
   "Parse a reference STR like \"1 John 3:1-2\".
-Return (BOOK CHAPTER VERSES), where BOOK is the (partial) book name
-string, CHAPTER is a number and VERSES is nil, (VERSE) or (FIRST LAST)."
+Return (BOOK CHAPTER VERSES).  BOOK is everything before the last
+word, as typed (it may be partial, and is \"\" if STR is one word).
+CHAPTER is a number, 0 if the last word doesn't start with one.
+VERSES is nil for a whole chapter, (VERSE) for one verse, or
+\(FIRST LAST) for a range."
   (let* ((words (s-split " " (s-trim str) t))
          (chapter-verse (car (last words)))
          (book (s-join " " (butlast words)))
@@ -349,7 +398,9 @@ string, CHAPTER is a number and VERSES is nil, (VERSE) or (FIRST LAST)."
           (when verses? (mapcar #'string-to-number verses)))))
 
 (defun rcf-sword--lookup (str)
-  "Return the verses described by the reference STR."
+  "Return the verses described by the reference STR.
+Signal a `user-error' if no book matches.  Return nil if the book
+matches but the chapter or verses aren't in the database."
   (pcase-let* ((`(,book-str ,chapter ,verses) (rcf-sword--parse-reference str))
                (book (and (not (string-empty-p book-str))
                           (rcf-sword--book-number book-str))))
@@ -359,19 +410,23 @@ string, CHAPTER is a number and VERSES is nil, (VERSE) or (FIRST LAST)."
 
 ;;;; Formatting
 
-;; I really ought to use a proper 'versification' table.  Until then, these
-;; heuristics decide where to break lines between verses.
+;; The database stores one verse per row, but sentences often run across
+;; verses.  When inserting several verses, these heuristics decide whether
+;; the next verse continues the current paragraph or starts a new one.
+;; I really ought to use a proper 'versification' table instead.
 
 (defconst rcf-sword--conjunctions
   '("and" "that" "but" "or" "as" "if" "when" "than" "because" "while"
     "where" "after" "so" "though" "since" "until" "whether" "before"
     "although" "nor" "like" "once" "unless" "now" "except")
-  "Words that, starting a verse, continue the previous sentence.")
+  "Words that, starting a verse, continue the previous sentence.
+Compared case-insensitively against the verse's whole first word.")
 
 (defun rcf-sword--start-is-continuation-p (text)
   "Return non-nil if verse TEXT continues the previous verse.
-That is the case when it starts with a lowercase letter or one of
-`rcf-sword--conjunctions'."
+That is the case when its first word is one of
+`rcf-sword--conjunctions' (in any case), or starts with a lowercase
+letter.  A verse starting with a quote mark or digit doesn't count."
   (let ((first-word (car (s-split " " text t))))
     (and first-word
          (or (member (downcase first-word) rcf-sword--conjunctions)
@@ -379,11 +434,14 @@ That is the case when it starts with a lowercase letter or one of
                (string-match-p "\\`[[:lower:]]" first-word))))))
 
 (defun rcf-sword--end-is-continuation-p (text)
-  "Return non-nil if verse TEXT ends with continuation punctuation."
+  "Return non-nil if verse TEXT ends with continuation punctuation.
+That is a semicolon, colon or comma, meaning the sentence carries on
+into the next verse."
   (string-match-p "[;:,]\\'" text))
 
 (defun rcf-sword--superscript (number)
-  "Return NUMBER as a string of Unicode superscript digits."
+  "Return NUMBER as a string of Unicode superscript digits.
+Used to mark verse numbers inline, as in \"¹In the beginning\"."
   (mapconcat (lambda (c)
                (if (<= ?0 c ?9)
                    (string (aref "⁰¹²³⁴⁵⁶⁷⁸⁹" (- c ?0)))
@@ -396,9 +454,13 @@ That is the case when it starts with a lowercase letter or one of
 A verse starts a new paragraph unless the previous verse ends with
 continuation punctuation or this one starts like a continuation.
 When SHOW-VERSE-NUMBERS is non-nil, prefix each verse with its number.
-Strip e-Sword footnote markup and fill the inserted text."
+Strip e-Sword footnote markup and fill the inserted text to
+`fill-column'.  No newline is added after the last verse; point is
+left at the end of the inserted text."
   (let ((start (point))
         (end (make-marker))
+        ;; In Markdown every line, including the blank one between
+        ;; paragraphs, must keep the "> " prefix to stay in the quote.
         (paragraph-break (if (derived-mode-p 'markdown-mode) "\n> \n> " "\n\n"))
         (previous nil))
     (dolist (verse verses)
@@ -412,15 +474,21 @@ Strip e-Sword footnote markup and fill the inserted text."
           (insert (rcf-sword--superscript (nth 2 verse))))
         (insert text)
         (setq previous text)))
+    ;; A marker, because stripping and filling change the text's length.
     (set-marker end (point))
-    ;; For now, just remove footnotes like {\cf2\super [18]}.
+    ;; For now, just remove footnote markers like {\cf2\super [18]}.
+    ;; Note that the continuation checks above see the raw text, so a
+    ;; verse ending in a marker after its punctuation isn't treated as
+    ;; continuing.
     (replace-regexp-in-region "{[^}]*}" "" start end)
     (fill-region start end)
     (goto-char end)
     (set-marker end nil)))
 
 (defun rcf-sword--reference-string (verses)
-  "Return a reference like \"Galatians 1:1-24\" describing VERSES."
+  "Return a reference like \"Galatians 1:1-24\" describing VERSES.
+VERSES must be non-empty and from a single chapter, as they are when
+looked up by `rcf-sword--lookup'."
   (let* ((first-verse (car verses))
          (last-verse (car (last verses)))
          (first-num (nth 2 first-verse))
@@ -434,7 +502,12 @@ Strip e-Sword footnote markup and fill the inserted text."
 
 (defun rcf-sword--insert-passage (verses)
   "Insert VERSES at point, formatted for the current major mode.
-Point is left at the start of the inserted passage."
+In `org-mode', insert a quote block preceded by a \"#+verse:\" line
+holding the reference.  In `markdown-mode', insert a block quote ending
+in an attribution line, optionally linked or footnoted.  Otherwise
+insert plain text followed by a \" -- Reference\" line.  Point is left
+at the start of the inserted passage.  If VERSES is nil, insert
+nothing and say so."
   (if (null verses)
       (message "Couldn't find that verse.")
     (let* ((start (point))
@@ -442,15 +515,22 @@ Point is left at the start of the inserted passage."
            (markdown? (derived-mode-p 'markdown-mode))
            (reference (rcf-sword--reference-string verses))
            (abbreviation (or (rcf-sword-translation-abbreviation) ""))
+           ;; For example "Galatians 1:1-24 KJV".
            (info (string-trim (concat reference " " abbreviation))))
+      ;; Open the quote.  In org, the reference goes on its own keyword
+      ;; line, because quotes weren't formatted nicely with it on the
+      ;; #+begin_quote line.
       (cond
        (org? (insert "#+verse: " info "\n#+begin_quote\n"))
        (markdown? (insert "> ")))
       (rcf-sword--insert-lines verses nil)
+      ;; Close the quote and add the attribution.
       (cond
        (org?
         (insert "\n#+end_quote\n"))
        (markdown?
+        ;; An empty quoted line separates the attribution from the
+        ;; passage, keeping both inside the block quote.
         (insert "\n>  \n> -- ")
         (if rcf-sword-md-link-reference
             (insert (format "[%s](https://www.biblegateway.com/passage/?search=%s&version=%s)"
@@ -474,8 +554,10 @@ Point is left at the start of the inserted passage."
 ;;;###autoload
 (defun rcf-sword-insert-verse (reference)
   "Insert the passage described by REFERENCE at point.
-REFERENCE looks like \"Gen 3\", \"John 3:16\" or \"1 Cor 13:4-7\".
-Book names may be abbreviated or partial."
+REFERENCE looks like \"Gen 3\" (a whole chapter), \"John 3:16\" or
+\"1 Cor 13:4-7\".  Book names may be abbreviated or partial.  The
+passage is formatted for the current major mode; see
+`rcf-sword--insert-passage'."
   (interactive (list (read-string "Enter verse: ")))
   (rcf-sword--insert-passage (rcf-sword--lookup reference)))
 
@@ -484,6 +566,7 @@ Book names may be abbreviated or partial."
   "Insert a random verse at point."
   (interactive)
   (rcf-sword--insert-passage
+   ;; Book numbers run from 1 to the number of books.
    (rcf-sword--random-verse-in-book
     (1+ (random (length rcf-sword-books))))))
 
@@ -498,7 +581,8 @@ Book names may be abbreviated or partial."
 
 (defun rcf-sword-toggle-margins ()
   "Toggle centered text in the current buffer.
-Uses `olivetti-mode' when it is installed."
+Use `olivetti-mode' with a body `rcf-sword-reader-width' columns wide,
+set only for this buffer.  If olivetti isn't installed, just say so."
   (interactive)
   (if (require 'olivetti nil t)
       (progn
@@ -513,23 +597,32 @@ Uses `olivetti-mode' when it is installed."
   "q" #'kill-current-buffer
   "w" #'rcf-sword-toggle-margins
   "c" #'rcf-sword-toggle-margins
-  ;; VIM never dies - scroll direction is inverse of movement.
+  ;; VIM never dies: j moves forward through the text and k back, by a
+  ;; screenful.  Emacs calls these scroll "up" and "down" because it
+  ;; names the direction the text moves, not the reader.
   "j" #'scroll-up-command
   "k" #'scroll-down-command
   "l" #'recenter-top-bottom
+  ;; `scroll-lock-mode' remaps these to scroll the text one line at a
+  ;; time, since the cursor is hidden.
   "n" #'next-line
   "p" #'previous-line)
 
 (define-derived-mode rcf-sword-reader-mode special-mode "Scripture"
   "Major mode for reading a book of scripture.
+The buffer is read-only, the cursor is hidden and `scroll-lock-mode'
+is on, so movement keys scroll the text.
 
 \\{rcf-sword-reader-mode-map}"
+  ;; Wrap rather than truncate if the window is narrower than the text.
   (setq-local truncate-lines nil
               cursor-type nil)
   (scroll-lock-mode 1))
 
 (defun rcf-sword--insert-heading (title &optional underline-length)
-  "Insert centered TITLE with an underline of UNDERLINE-LENGTH dashes."
+  "Insert TITLE centered, with an em dash underline beneath it.
+The underline is UNDERLINE-LENGTH characters long, or as long as
+TITLE if that is nil."
   (let ((start (point)))
     (insert title "\n"
             (make-string (or underline-length (length title)) ?—)
@@ -537,13 +630,17 @@ Uses `olivetti-mode' when it is installed."
     (center-region start (point))))
 
 (defun rcf-sword--render-book (book-name verses)
-  "Insert the book called BOOK-NAME made of VERSES into the current buffer."
+  "Insert the book called BOOK-NAME made of VERSES into the current buffer.
+VERSES must be ordered by chapter, then verse.  Each verse is shown
+with a superscript verse number."
+  ;; A little top margin, then the book's title.
   (insert "\n\n\n")
   (rcf-sword--insert-heading book-name (+ 4 (length book-name)))
   (insert "\n")
   (let ((chapters (seq-uniq (mapcar #'cadr verses))))
     (dolist (chapter chapters)
-      ;; Insert a chapter heading (except for the first chapter).
+      ;; Insert a chapter heading, except for the first chapter, which sits
+      ;; under the book's title.
       (unless (eq chapter (car chapters))
         (insert "\n\n")
         (rcf-sword--insert-heading (format "%s Ch. %d" book-name chapter)))
@@ -558,7 +655,10 @@ Uses `olivetti-mode' when it is installed."
 ;;;###autoload
 (defun rcf-sword-read-book (book)
   "Open BOOK of the Bible in a read-only reader buffer.
-BOOK may be abbreviated or partial, like \"Gen\" or \"Tim\"."
+BOOK may be abbreviated or partial, like \"Gen\" or \"Tim\".  If the
+book is already open, switch to its buffer as is; kill that buffer to
+reload it, e.g. after changing translations.  Centers the text when
+olivetti is installed.  See `rcf-sword-reader-mode' for the keys."
   (interactive
    (list (completing-read "Enter book: " (rcf-sword--book-names))))
   (let* ((data (or (rcf-sword--find-book book)
@@ -579,7 +679,8 @@ BOOK may be abbreviated or partial, like \"Gen\" or \"Tim\"."
             (rcf-sword--render-book book-name verses))
           (goto-char (point-min))
           (pop-to-buffer-same-window (current-buffer))
-          (when (featurep 'olivetti)
+          ;; Start centered, but stay quiet if olivetti isn't installed.
+          (when (require 'olivetti nil t)
             (rcf-sword-toggle-margins)))))))
 
 (provide 'rcf-sword)
