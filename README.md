@@ -37,7 +37,7 @@ a whole book in a distraction-free reader buffer.
 (use-package rcf-sword
   :vc (:url "https://github.com/RyanFleck/rcf-sword" :rev :newest)
   :custom
-  (rcf-sword-bblx-file "~/emacs/sword/new.king.james.version.bblx"))
+  (rcf-sword-bblx-file "~/bibles/my-translation.bblx"))
 ```
 
 On Emacs 29, install the package with `package-vc-install` first, then use
@@ -56,7 +56,7 @@ or, with `use-package`:
 (use-package rcf-sword
   :straight (:host github :repo "RyanFleck/rcf-sword")
   :custom
-  (rcf-sword-bblx-file "~/emacs/sword/new.king.james.version.bblx"))
+  (rcf-sword-bblx-file "~/bibles/my-translation.bblx"))
 ```
 
 ### elpaca
@@ -65,7 +65,7 @@ or, with `use-package`:
 (use-package rcf-sword
   :ensure (:host github :repo "RyanFleck/rcf-sword")
   :custom
-  (rcf-sword-bblx-file "~/emacs/sword/new.king.james.version.bblx"))
+  (rcf-sword-bblx-file "~/bibles/my-translation.bblx"))
 ```
 
 ### MELPA
@@ -86,12 +86,14 @@ The package isn't on MELPA yet. A ready-made recipe is in
 References accept partial or abbreviated book names: `Gen 3`, `1 Cor 13:4-7`,
 `Tim 2`.
 
-In the reader buffer:
+In the reader buffer the cursor is hidden and `scroll-lock-mode` is on, so
+movement keys scroll the text. The keys are:
 
 | Key       | Does                                   |
 |-----------|----------------------------------------|
 | `j` / `k` | Scroll down / up.                      |
 | `l`       | Recenter.                              |
+| `n` / `p` | Scroll one line down / up.             |
 | `w` / `c` | Toggle centered margins (olivetti).    |
 | `q`       | Close the reader.                      |
 
@@ -102,7 +104,7 @@ In the reader buffer:
 | `rcf-sword-bblx-file`         | `nil`   | Path to your `.bblx` file. **Required.**        |
 | `rcf-sword-md-link-reference` | `nil`   | Link the Markdown attribution to Bible Gateway. |
 | `rcf-sword-md-use-footnotes`  | `nil`   | Add a Markdown footnote linking to the passage. |
-| `rcf-sword-reader-width`      | `70`    | Body width for centered reading.                |
+| `rcf-sword-reader-width`      | `72`    | Body width for centered reading.                |
 
 ## Development
 

@@ -15,13 +15,14 @@
 ;;;; Fixture
 
 (defconst rcf-sword-test--verses
-  '((1 1 1 " In the beginning God created the heavens and the earth.")
-    (1 1 2 " The earth was without form, and void;{\\cf2\\super [1]} and darkness was on the face of the deep.")
-    (1 1 3 " Then God said, \"Let there be light\"; and there was light.")
-    (43 3 16 " For God so loved the world that He gave His only begotten Son,")
-    (43 3 17 " that whoever believes in Him should not perish.")
-    (43 3 18 " He who believes in Him is not condemned.")
-    (20 1 1 " The proverbs of Solomon the son of David, king of Israel:"))
+  ;; Public domain King James Version text.
+  '((1 1 1 " In the beginning God created the heaven and the earth.")
+    (1 1 2 " And the earth was without form, and void;{\\cf2\\super [1]} and darkness was upon the face of the deep.")
+    (1 1 3 " And God said, Let there be light: and there was light.")
+    (19 23 1 " The LORD is my shepherd; I shall not want.")
+    (19 23 2 " He maketh me to lie down in green pastures: he leadeth me beside the still waters.")
+    (19 23 3 " He restoreth my soul: he leadeth me in the paths of righteousness for his name's sake.")
+    (20 1 1 " The proverbs of Solomon the son of David, king of Israel;"))
   "Verses inserted into the fixture database.")
 
 (defmacro rcf-sword-test--with-db (&rest body)
@@ -34,7 +35,7 @@
            (let ((db (sqlite-open file)))
              (sqlite-execute db "CREATE TABLE Bible (Book INT, Chapter INT, Verse INT, Scripture TEXT);")
              (sqlite-execute db "CREATE TABLE Details (Description TEXT, Abbreviation TEXT);")
-             (sqlite-execute db "INSERT INTO Details VALUES ('New King James Version', 'NKJV');")
+             (sqlite-execute db "INSERT INTO Details VALUES ('King James Version', 'KJV');")
              (dolist (verse rcf-sword-test--verses)
                (sqlite-execute db "INSERT INTO Bible VALUES (?, ?, ?, ?);" verse))
              (sqlite-close db))
@@ -94,38 +95,40 @@
 
 (ert-deftest rcf-sword-test-lookup ()
   (rcf-sword-test--with-db
-    (should (equal (rcf-sword-translation-name) "New King James Version"))
-    (should (equal (rcf-sword-translation-abbreviation) "NKJV"))
+    (should (equal (rcf-sword-translation-name) "King James Version"))
+    (should (equal (rcf-sword-translation-abbreviation) "KJV"))
     (should (equal (mapcar #'cl-caddr (rcf-sword--lookup "Gen 1")) '(1 2 3)))
     (should (equal (mapcar #'cl-caddr (rcf-sword--lookup "Gen 1:2")) '(2)))
-    (should (equal (mapcar #'cl-caddr (rcf-sword--lookup "John 3:16-17")) '(16 17)))
+    (should (equal (mapcar #'cl-caddr (rcf-sword--lookup "Ps 23:1-2")) '(1 2)))
     (should-error (rcf-sword--lookup "Nonexistent 1:1") :type 'user-error)))
 
 (ert-deftest rcf-sword-test-insert-plain ()
   (rcf-sword-test--with-db
     (with-temp-buffer
-      (rcf-sword-insert-verse "John 3:16-18")
+      (rcf-sword-insert-verse "Psalm 23:1-3")
       (should (= (point) (point-min)))
       (should (equal (buffer-string)
-                     (concat "For God so loved the world that He gave His only begotten Son, that\n"
-                             "whoever believes in Him should not perish.\n"
+                     (concat "The LORD is my shepherd; I shall not want.\n"
                              "\n"
-                             "He who believes in Him is not condemned.\n"
+                             "He maketh me to lie down in green pastures: he leadeth me beside the\n"
+                             "still waters.\n"
                              "\n"
-                             " -- John 3:16-18 NKJV"))))))
+                             "He restoreth my soul: he leadeth me in the paths of righteousness for\n"
+                             "his name's sake.\n"
+                             "\n"
+                             " -- Psalms 23:1-3 KJV"))))))
 
 (ert-deftest rcf-sword-test-insert-org ()
   (rcf-sword-test--with-db
     (with-temp-buffer
       (org-mode)
-      (rcf-sword-insert-verse "Gen 1:1-2")
+      (rcf-sword-insert-verse "Gen 1:1-3")
       (should (equal (buffer-string)
-                     (concat "#+verse: Genesis 1:1-2 NKJV\n"
+                     (concat "#+verse: Genesis 1:1-3 KJV\n"
                              "#+begin_quote\n"
-                             "In the beginning God created the heavens and the earth.\n"
-                             "\n"
-                             "The earth was without form, and void; and darkness was on the face of\n"
-                             "the deep.\n"
+                             "In the beginning God created the heaven and the earth. And the earth\n"
+                             "was without form, and void; and darkness was upon the face of the\n"
+                             "deep. And God said, Let there be light: and there was light.\n"
                              "#+end_quote\n"))))))
 
 (ert-deftest rcf-sword-test-insert-markdown ()
@@ -134,21 +137,21 @@
     (with-temp-buffer
       (markdown-mode)
       (let ((rcf-sword-md-link-reference t))
-        (rcf-sword-insert-verse "John 3:16-18"))
-      (should (equal (buffer-string)
-                     (concat "> For God so loved the world that He gave His only begotten Son, that\n"
-                             "> whoever believes in Him should not perish.\n"
+        (rcf-sword-insert-verse "Psalm 23:1-2"))
+      (should (equal (substring-no-properties (buffer-string))
+                     (concat "> The LORD is my shepherd; I shall not want.\n"
                              "> \n"
-                             "> He who believes in Him is not condemned.\n"
+                             "> He maketh me to lie down in green pastures: he leadeth me beside the\n"
+                             "> still waters.\n"
                              ">  \n"
-                             "> -- [John 3:16-18 NKJV](https://www.biblegateway.com/passage/"
-                             "?search=John%203%3A16-18&version=NKJV)"))))))
+                             "> -- [Psalms 23:1-2 KJV](https://www.biblegateway.com/passage/"
+                             "?search=Psalms%2023%3A1-2&version=KJV)"))))))
 
 (ert-deftest rcf-sword-test-random ()
   (rcf-sword-test--with-db
     (with-temp-buffer
       (rcf-sword-insert-random-proverb)
-      (should (string-match-p "Proverbs 1:1 NKJV" (buffer-string))))))
+      (should (string-match-p "Proverbs 1:1 KJV" (buffer-string))))))
 
 (ert-deftest rcf-sword-test-read-book ()
   (rcf-sword-test--with-db
@@ -159,6 +162,9 @@
             (should (derived-mode-p 'rcf-sword-reader-mode))
             (should buffer-read-only)
             (should (string-match-p "¹In the beginning" (buffer-string)))
+            (should-not cursor-type)
+            (should scroll-lock-mode)
+            (should (eq (lookup-key rcf-sword-reader-mode-map "n") #'next-line))
             (should-not (string-match-p "cf2" (buffer-string))))
         (kill-buffer "Scripture: Genesis")))))
 
