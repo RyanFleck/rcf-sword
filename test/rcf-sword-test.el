@@ -66,6 +66,23 @@
   (should-not (rcf-sword--book-number "."))
   (should-not (rcf-sword--book-number "Gen.*")))
 
+(ert-deftest rcf-sword-test-book-aliases ()
+  ;; Common abbreviations that prefix and substring matching miss.
+  (pcase-dolist (`(,partial ,number)
+                 '(("Jn" 43) ("jn" 43) ("Mt" 40) ("Mk" 41) ("Lk" 42)
+                   ("Jas" 59) ("Phlm" 57) ("Rv" 66) ("Revelations" 66)
+                   ("song of songs" 22) ("Canticles" 22) ("Qoh" 21)
+                   ;; Ordinals in any form, with or without an alias.
+                   ("1 Jn" 62) ("I John" 62) ("First John" 62) ("1st Jn" 62)
+                   ("II Kings" 12) ("III Jn" 64) ("2 Tm" 55) ("1 Pt" 60)
+                   ;; Existing matches are unaffected.
+                   ("Is" 23) ("Phil" 50) ("Jud" 7) ("1 Cor" 46)))
+    (should (equal (cons partial (rcf-sword--book-number partial))
+                   (cons partial number))))
+  ;; Every alias must resolve to a book.
+  (pcase-dolist (`(,alias . ,_) rcf-sword-book-aliases)
+    (should (rcf-sword--find-book alias))))
+
 (ert-deftest rcf-sword-test-book-numbers-are-sequential ()
   (should (equal (mapcar #'cadr rcf-sword-books) (number-sequence 1 66))))
 

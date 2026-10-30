@@ -216,11 +216,51 @@ to match what the user types and to label inserted passages.")
   "Return the names of all books in `rcf-sword-books'."
   (mapcar #'cl-caddr rcf-sword-books))
 
+(defcustom rcf-sword-book-aliases
+  '(("Gn" . "Genesis") ("Lv" . "Leviticus") ("Nm" . "Numbers")
+    ("Dt" . "Deuteronomy") ("Jdg" . "Judges") ("Jg" . "Judges")
+    ("Jb" . "Job") ("Pss" . "Psalms") ("Prv" . "Proverbs")
+    ("Qoh" . "Ecclesiastes") ("Song of Songs" . "Song of Solomon")
+    ("Canticles" . "Song of Solomon") ("SoS" . "Song of Solomon")
+    ("Sg" . "Song of Solomon") ("Ezk" . "Ezekiel") ("Dn" . "Daniel")
+    ("Jl" . "Joel") ("Zp" . "Zephaniah") ("Mt" . "Matthew")
+    ("Mk" . "Mark") ("Lk" . "Luke") ("Jn" . "John") ("Jas" . "James")
+    ("Phlm" . "Philemon") ("Tm" . "Timothy") ("Pt" . "Peter")
+    ("Rv" . "Revelation") ("Revelations" . "Revelation"))
+  "Book abbreviations that don't otherwise match a book's name.
+Each element is (ALIAS . NAME).  When what the user types equals an
+ALIAS (ignoring case), NAME is looked up instead.  Only aliases that
+the normal prefix and substring matching misses are needed: \"Gen\"
+and \"Rom\" already work.  An alias also works after a number, so
+\"Jn\" makes \"1 Jn\" find 1 John."
+  :type '(alist :key-type string :value-type string))
+
+(defconst rcf-sword--ordinals
+  '(("1" . "1") ("I" . "1") ("First" . "1") ("1st" . "1")
+    ("2" . "2") ("II" . "2") ("Second" . "2") ("2nd" . "2")
+    ("3" . "3") ("III" . "3") ("Third" . "3") ("3rd" . "3"))
+  "Ways of writing the number that starts names like \"1 John\".")
+
+(defun rcf-sword--expand-book-alias (partial)
+  "Return PARTIAL with its leading ordinal and any alias expanded.
+For example \"I Jn\" and \"First Jn\" both become \"1 John\".
+Anything else is returned unchanged."
+  (let ((expand (lambda (name)
+                  (or (cdr (assoc-string name rcf-sword-book-aliases t)) name))))
+    (if (and (string-match "\\`\\([^ ]+\\) +\\(.+\\)\\'" partial)
+             (assoc-string (match-string 1 partial) rcf-sword--ordinals t))
+        ;; A leading ordinal: normalize it, then expand the rest.
+        (concat (cdr (assoc-string (match-string 1 partial) rcf-sword--ordinals t))
+                " " (funcall expand (match-string 2 partial)))
+      (funcall expand partial))))
+
 (defun rcf-sword--find-book (partial)
   "Return the first book triple whose name matches PARTIAL, or nil.
-First look for a name that starts with PARTIAL, then for one that
-contains it, each time in canonical order.  Matching ignores case,
-so \"jo\" finds Joshua and \"tim\" finds 1 Timothy."
+First expand ordinals and aliases (see `rcf-sword-book-aliases'), then
+look for a name that starts with PARTIAL, then for one that contains
+it, each time in canonical order.  Matching ignores case, so \"jo\"
+finds Joshua, \"tim\" finds 1 Timothy and \"I Jn\" finds 1 John."
+  (setq partial (rcf-sword--expand-book-alias partial))
   (or (seq-find (lambda (book) (string-prefix-p partial (nth 2 book) t))
                 rcf-sword-books)
       (let ((case-fold-search t)
