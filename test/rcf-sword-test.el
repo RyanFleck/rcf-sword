@@ -102,6 +102,85 @@
   ;; also fail byte-compilation.
   (should-not (featurep 's)))
 
+;;;; Built-in string handling
+;;
+;; rcf-sword used s.el until 0.2.2.  These tests pin the behaviour of each
+;; built-in replacement at its call site.  The expected values were
+;; checked against the s.el-based v0.2.0 release over a wide set of inputs
+;; (whitespace variants, case, regexp characters, Unicode, empty strings),
+;; and every result matched.
+
+(ert-deftest rcf-sword-test-strings-prefix-ignores-case ()
+  ;; `string-prefix-p' with IGNORE-CASE replaced `s-starts-with?'.
+  (should (equal (rcf-sword--book-number "GEN") 1))
+  (should (equal (rcf-sword--book-number "gEn") 1))
+  (should (equal (rcf-sword--book-number "1 JOHN") 62))
+  (should (equal (rcf-sword--book-number "song of") 22))
+  ;; The empty string is a prefix of every name, so it finds the first book.
+  (should (equal (rcf-sword--book-number "") 1)))
+
+(ert-deftest rcf-sword-test-strings-contains-ignores-case ()
+  ;; A case-folded `string-match-p' on a `regexp-quote'd needle replaced
+  ;; `s-contains?' with IGNORE-CASE.
+  (should (equal (rcf-sword--book-number "TIM") 54))
+  (should (equal (rcf-sword--book-number "of sol") 22))
+  ;; Contains matches go in canonical order: John before 1 John.
+  (should (equal (rcf-sword--book-number "OHN") 43))
+  (should (equal (rcf-sword--book-number "ohn") 43)))
+
+(ert-deftest rcf-sword-test-strings-contains-is-literal ()
+  ;; Regexp characters in what the user types match literally, so they
+  ;; neither error nor act as wildcards.
+  (dolist (needle '("." ".*" "J.hn" "Gen.*" "[" "]" "\\" "(" "?" "+" "^G" "s$"))
+    (should-not (rcf-sword--find-book needle))))
+
+(ert-deftest rcf-sword-test-strings-parse-whitespace ()
+  ;; `string-trim' replaced `s-trim', and `split-string' on " " with
+  ;; OMIT-NULLS replaced `s-split'.  Outer whitespace of any kind is
+  ;; trimmed, and runs of spaces between words collapse.
+  (should (equal (rcf-sword--parse-reference " \t1 Cor 13:4-7\r\n ")
+                 '("1 Cor" 13 (4 7))))
+  (should (equal (rcf-sword--parse-reference "1   Cor   13")
+                 '("1 Cor" 13 nil)))
+  ;; `string-join' replaced `s-join': book words rejoin with single spaces.
+  (should (equal (rcf-sword--parse-reference "Song  of   Solomon 2:1")
+                 '("Song of Solomon" 2 (1))))
+  ;; Only spaces separate words; a tab inside the reference doesn't.
+  (should (equal (rcf-sword--parse-reference "Ps\t23") '("" 0 nil))))
+
+(ert-deftest rcf-sword-test-strings-parse-verse-ranges ()
+  ;; `split-string' on ":" (keeping empty parts) and on "-" (omitting
+  ;; them) replaced `s-split'.
+  (should (equal (rcf-sword--parse-reference "Ps 23:") '("Ps" 23 nil)))
+  (should (equal (rcf-sword--parse-reference "Ps 23:1-") '("Ps" 23 (1))))
+  (should (equal (rcf-sword--parse-reference "Ps 23:1-2-3") '("Ps" 23 (1 2 3))))
+  (should (equal (rcf-sword--parse-reference "Ps :1") '("Ps" 0 (1)))))
+
+(ert-deftest rcf-sword-test-strings-blank-reference ()
+  ;; A blank reference is rejected, as it was with s.el.
+  (should-error (rcf-sword--lookup ""))
+  (should-error (rcf-sword--lookup "   ")))
+
+(ert-deftest rcf-sword-test-strings-first-word ()
+  ;; `split-string' with OMIT-NULLS replaced `s-split' when taking a
+  ;; verse's first word.
+  (should (rcf-sword--start-is-continuation-p "  and so"))
+  (should (rcf-sword--start-is-continuation-p "AND so"))
+  (should-not (rcf-sword--start-is-continuation-p "   "))
+  ;; The whole first word is compared, punctuation included, so "And,"
+  ;; isn't a conjunction and isn't lowercase.
+  (should-not (rcf-sword--start-is-continuation-p "And, behold")))
+
+(ert-deftest rcf-sword-test-strings-trim-verses ()
+  ;; `string-trim' replaced `s-trim' on each verse's text, removing
+  ;; spaces, tabs, carriage returns and newlines at either end.
+  (with-temp-buffer
+    (rcf-sword--insert-lines '((1 1 1 "\t In the beginning.\r\n ")
+                               (1 1 2 "\nAnd the earth was void. \t"))
+                             nil)
+    (should (equal (buffer-string)
+                   "In the beginning. And the earth was void."))))
+
 ;;;; Database-backed
 
 (ert-deftest rcf-sword-test-missing-file ()
