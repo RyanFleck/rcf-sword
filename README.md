@@ -126,6 +126,7 @@ build from the `vX.Y.Z` release tags.
 | Command                           | Does                                                  |
 |-----------------------------------|-------------------------------------------------------|
 | `rcf-sword-insert-verse`          | Prompt for a reference like `John 3:16-18` and insert it. |
+| `rcf-sword-copy-verse`            | Copy a passage as plain text, to paste into email or chat. |
 | `rcf-sword-insert-random-verse`   | Insert a random verse.                                |
 | `rcf-sword-insert-random-proverb` | Insert a random verse from Proverbs.                  |
 | `rcf-sword-read-book`             | Open a whole book in a read-only reader buffer.       |

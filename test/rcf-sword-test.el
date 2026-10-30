@@ -396,6 +396,21 @@
         (rcf-sword-insert-verse "Ps 23:1" '(4))
         (should (string-prefix-p "The LORD" (buffer-string)))))))
 
+(ert-deftest rcf-sword-test-copy-verse ()
+  ;; Copied as plain text, without hard wrapping, and the buffer is untouched.
+  (rcf-sword-test--with-db
+    (with-temp-buffer
+      (org-mode)
+      (let ((kill-ring nil))
+        (rcf-sword-copy-verse "Ps 23:2-3")
+        (should (equal (buffer-string) ""))
+        (should (equal (car kill-ring)
+                       (concat "He maketh me to lie down in green pastures: he leadeth me beside the still waters.\n"
+                               "\n"
+                               "He restoreth my soul: he leadeth me in the paths of righteousness for his name's sake.\n"
+                               "\n"
+                               " -- Psalms 23:2-3 KJV")))))))
+
 (ert-deftest rcf-sword-test-random-is-fair ()
   ;; Every verse is equally likely, wherever it is.  The fixture has 7
   ;; verses in 3 books, so with the old book-then-chapter-then-verse

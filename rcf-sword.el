@@ -37,6 +37,7 @@
 ;; Set `rcf-sword-bblx-file' to the path of your .bblx file, then use:
 ;;
 ;;   M-x rcf-sword-insert-verse          Insert a passage, e.g. "John 3:16-18".
+;;   M-x rcf-sword-copy-verse            Copy a passage, to paste elsewhere.
 ;;   M-x rcf-sword-insert-random-verse   Insert a random verse.
 ;;   M-x rcf-sword-insert-random-proverb Insert a random proverb.
 ;;   M-x rcf-sword-read-book             Read a whole book in a reader buffer.
@@ -728,6 +729,21 @@ the database, say what's wrong and insert nothing."
   (let ((rcf-sword-insert-verse-numbers
          (xor rcf-sword-insert-verse-numbers flip-numbers)))
     (rcf-sword--insert-passage (rcf-sword--lookup reference))))
+
+;;;###autoload
+(defun rcf-sword-copy-verse (reference &optional flip-numbers)
+  "Copy the passage described by REFERENCE to the kill ring.
+The passage is formatted as plain text, one line per paragraph, ready
+to paste into an email or chat.  Arguments are as for
+`rcf-sword-insert-verse', including the prefix argument FLIP-NUMBERS."
+  (interactive (list (rcf-sword--read-reference "Copy verse")
+                     current-prefix-arg))
+  (with-temp-buffer
+    ;; Don't hard-wrap: the app it's pasted into will wrap the text.
+    (setq fill-column most-positive-fixnum)
+    (rcf-sword-insert-verse reference flip-numbers)
+    (kill-new (buffer-string)))
+  (message "Copied %s" reference))
 
 ;;;###autoload
 (defun rcf-sword-insert-random-verse ()
