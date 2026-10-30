@@ -167,3 +167,39 @@ Dependencies for the checks are installed into `./.elpa`. See
 ## License
 
 GPL-3.0-or-later. See [`LICENSE`](LICENSE).
+
+## Interesting notes
+
+Findings from replacing the s.el library with functions built into Emacs
+(version 0.2.2).
+
+**The swap changed nothing.** A one-off script compared the last s.el-based
+release (0.2.0) with the built-in version over about 90 tricky inputs:
+whitespace variants, mixed case, regexp characters, Unicode and empty
+strings. All 17,383 comparisons matched. The tests that now pin this
+behaviour also pass when run against the old s.el code.
+
+**How references are read:**
+
+- Book names match regardless of case, first by how a name starts, then by
+  anything inside it, in Bible order. So `TIM` finds 1 Timothy, and `OHN`
+  finds John before 1 John.
+- Characters like `.`, `*`, `[` or `\` in a book name are matched literally.
+  They never act as wildcards, so `J.hn` finds nothing.
+- Extra spaces are fine: `Song  of   Solomon 2:1` works. But only spaces
+  separate words, so a tab or a non-breaking space inside a reference
+  doesn't.
+- A trailing colon or dash is forgiven: `Ps 23:` gives the whole chapter,
+  and `Ps 23:1-` gives verse 1.
+- Known issue: a blank reference shows a raw Lisp error
+  (`wrong-type-argument`) rather than a friendly message. It did the same
+  with s.el.
+
+**For contributors:**
+
+- `s-split` was a thin wrapper around the built-in `split-string`. Both treat
+  the separator as a regular expression, not literal text.
+- `string-join` takes its arguments in the opposite order to `s-join`:
+  `(string-join LIST SEP)` versus `(s-join SEP LIST)`.
+- [`AGENTS.md`](AGENTS.md) has a full table of s.el functions and their
+  built-in equivalents.
