@@ -797,6 +797,21 @@ It contains VERSES, a list of (BOOK CHAPTER VERSE TEXT)."
         (when (get-buffer "Scripture: Psalms")
           (kill-buffer "Scripture: Psalms"))))))
 
+(ert-deftest rcf-sword-test-command-map-and-menu ()
+  ;; The prefix map and the menu offer the same commands on the same keys.
+  ;; It's a prefix command, so `keymap-global-set' can bind the symbol.
+  (should (keymapp (symbol-function 'rcf-sword-command-map)))
+  (should (eq (keymap-lookup rcf-sword-command-map "i") #'rcf-sword-insert-verse))
+  (should (commandp #'rcf-sword-menu))
+  (map-keymap
+   (lambda (key command)
+     (should (commandp command))
+     (unless (eq command #'rcf-sword-menu)
+       ;; The menu's entry for KEY runs the same COMMAND.
+       (should (memq command (flatten-tree (transient-get-suffix
+                                            'rcf-sword-menu (string key)))))))
+   rcf-sword-command-map))
+
 (ert-deftest rcf-sword-test-read-book ()
   (rcf-sword-test--with-db
     (save-window-excursion

@@ -45,6 +45,7 @@
 ;;   M-x rcf-sword-insert-random-proverb Insert a random proverb.
 ;;   M-x rcf-sword-read-book             Read a whole book in a reader buffer.
 ;;   M-x rcf-sword-search                List the verses containing some text.
+;;   M-x rcf-sword-menu                  A menu of all of these.
 ;;   M-x rcf-sword-close-database        Close the database, e.g. after
 ;;                                       switching translations.
 ;;
@@ -91,6 +92,7 @@
 (require 'subr-x)
 (require 'text-property-search)
 (require 'thingatpt)
+(require 'transient)
 (require 'url-util)
 
 ;; Optional integrations.  These are only used after checking that the
@@ -1251,6 +1253,44 @@ Centers the text when olivetti is installed.  See
             ;; Say whether the chapter or the verse is missing.
             (rcf-sword--missing-passage data chapter verse))))
     (get-buffer buffer-name)))
+
+;;;; Command menu and keymap
+
+;; Packages shouldn't bind global keys, so these are for users to bind:
+;;   (keymap-global-set "C-c b" #'rcf-sword-menu)          ; a menu
+;;   (keymap-global-set "C-c b" 'rcf-sword-command-map)    ; or a prefix map
+;; Both use the same letters.
+
+;;;###autoload (autoload 'rcf-sword-command-map "rcf-sword" nil t 'keymap)
+(defvar-keymap rcf-sword-command-map
+  :doc "Prefix keymap of rcf-sword commands, for users to bind to a key."
+  :prefix 'rcf-sword-command-map
+  "i" #'rcf-sword-insert-verse
+  "c" #'rcf-sword-copy-verse
+  "C" #'rcf-sword-insert-verse-compare
+  "r" #'rcf-sword-insert-random-verse
+  "p" #'rcf-sword-insert-random-proverb
+  "b" #'rcf-sword-read-book
+  "s" #'rcf-sword-search
+  "d" #'rcf-sword-verse-of-the-day
+  "t" #'rcf-sword-switch-translation
+  "m" #'rcf-sword-menu)
+
+;;;###autoload (autoload 'rcf-sword-menu "rcf-sword" nil t)
+(transient-define-prefix rcf-sword-menu ()
+  "Show a menu of rcf-sword commands."
+  [["Insert"
+    ("i" "Verse" rcf-sword-insert-verse)
+    ("c" "Copy a verse" rcf-sword-copy-verse)
+    ("C" "Compare translations" rcf-sword-insert-verse-compare)
+    ("r" "Random verse" rcf-sword-insert-random-verse)
+    ("p" "Random proverb" rcf-sword-insert-random-proverb)]
+   ["Read"
+    ("b" "Book" rcf-sword-read-book)
+    ("s" "Search" rcf-sword-search)
+    ("d" "Verse of the day" rcf-sword-verse-of-the-day)]
+   ["Translation"
+    ("t" "Switch" rcf-sword-switch-translation)]])
 
 (provide 'rcf-sword)
 ;;; rcf-sword.el ends here

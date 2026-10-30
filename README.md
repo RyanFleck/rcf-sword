@@ -182,6 +182,17 @@ movement keys scroll the text. The keys are:
 | `w` / `c` | Toggle centered margins (olivetti).    |
 | `q`       | Close the reader.                      |
 
+### Keys
+
+rcf-sword doesn't bind any global keys. To reach every command from one
+key, bind either a menu or a prefix map. They use the same letters (`i`
+insert, `c` copy, `b` book, `s` search, `d` verse of the day, and so on):
+
+```elisp
+(keymap-global-set "C-c b" #'rcf-sword-menu)          ; a menu that shows the keys
+(keymap-global-set "C-c b" 'rcf-sword-command-map)    ; or keys alone
+```
+
 ## Options
 
 | Variable                      | Default | Purpose                                         |
