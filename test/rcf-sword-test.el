@@ -458,6 +458,26 @@
     (should (equal (rcf-sword-test--user-error #'rcf-sword-read-book "Foo")
                    "No book matches \"Foo\"; try a name like \"Gen\", \"1 Cor\" or \"Psalms\""))))
 
+(ert-deftest rcf-sword-test-formatting-templates ()
+  (rcf-sword-test--with-db
+    (with-temp-buffer
+      ;; An org verse block with the reference underneath.
+      (org-mode)
+      (let ((rcf-sword-org-before "#+begin_verse\n")
+            (rcf-sword-org-after "\n#+end_verse\n-- %s\n"))
+        (rcf-sword-insert-verse "Ps 23:1"))
+      (should (equal (buffer-string)
+                     (concat "#+begin_verse\n"
+                             "The LORD is my shepherd; I shall not want.\n"
+                             "#+end_verse\n"
+                             "-- Psalms 23:1 KJV\n")))
+      ;; An em dash attribution in plain text.
+      (fundamental-mode)
+      (erase-buffer)
+      (let ((rcf-sword-attribution-format "— %s"))
+        (rcf-sword-insert-verse "Ps 23:1"))
+      (should (string-suffix-p "\n\n — Psalms 23:1 KJV" (buffer-string))))))
+
 (ert-deftest rcf-sword-test-insert-verse-numbers ()
   (rcf-sword-test--with-db
     (with-temp-buffer

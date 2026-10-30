@@ -123,6 +123,27 @@ The footnote links to Bible Gateway's page comparing translations.
 Requires `markdown-mode'."
   :type 'boolean)
 
+(defcustom rcf-sword-org-before "#+verse: %s\n#+begin_quote\n"
+  "Text inserted before a passage in `org-mode'.
+%s is replaced by the reference, like \"Psalms 23:1 KJV\".  The default
+puts the reference on its own keyword line above a quote block, because
+quotes weren't formatted nicely with it on the #+begin_quote line.  For
+a verse block instead, use \"#+begin_verse\\n\" here and
+\"\\n#+end_verse\\n-- %s\\n\" in `rcf-sword-org-after'."
+  :type 'string)
+
+(defcustom rcf-sword-org-after "\n#+end_quote\n"
+  "Text inserted after a passage in `org-mode'.
+%s is replaced by the reference; see `rcf-sword-org-before'."
+  :type 'string)
+
+(defcustom rcf-sword-attribution-format "-- %s"
+  "Format of the attribution line after a passage in Markdown and plain text.
+%s is replaced by the reference, like \"Psalms 23:1 KJV\" (a link, in
+Markdown with `rcf-sword-md-link-reference').  For example, \"— %s\"
+uses an em dash."
+  :type 'string)
+
 (defcustom rcf-sword-insert-verse-numbers nil
   "When non-nil, inserted passages show verse numbers, like \"¹⁶For God\".
 A prefix argument to `rcf-sword-insert-verse' flips this for one
@@ -756,10 +777,11 @@ VERSES must be non-empty and from one book."
 
 (defun rcf-sword--insert-passage (verses)
   "Insert VERSES at point, formatted for the current major mode.
-In `org-mode', insert a quote block preceded by a \"#+verse:\" line
-holding the reference.  In `markdown-mode', insert a block quote ending
-in an attribution line, optionally linked or footnoted.  Otherwise
-insert plain text followed by a \" -- Reference\" line.  Point is left
+In `org-mode', wrap it in `rcf-sword-org-before' and
+`rcf-sword-org-after' (a quote block, by default).  In `markdown-mode',
+insert a block quote ending in an attribution line, optionally linked
+or footnoted.  Otherwise insert plain text followed by an attribution
+line.  Attributions follow `rcf-sword-attribution-format'.  Point is left
 at the start of the inserted passage.  If VERSES is nil, insert
 nothing and say so."
   (if (null verses)
@@ -771,27 +793,26 @@ nothing and say so."
            (abbreviation (or (rcf-sword-translation-abbreviation) ""))
            ;; For example "Galatians 1:1-24 KJV".
            (info (string-trim (concat reference " " abbreviation))))
-      ;; Open the quote.  In org, the reference goes on its own keyword
-      ;; line, because quotes weren't formatted nicely with it on the
-      ;; #+begin_quote line.
+      ;; Open the quote.
       (cond
-       (org? (insert "#+verse: " info "\n#+begin_quote\n"))
+       (org? (insert (format rcf-sword-org-before info)))
        (markdown? (insert "> ")))
       (rcf-sword--insert-lines verses rcf-sword-insert-verse-numbers)
       ;; Close the quote and add the attribution.
       (cond
        (org?
-        (insert "\n#+end_quote\n"))
+        (insert (format rcf-sword-org-after info)))
        (markdown?
         ;; An empty quoted line separates the attribution from the
         ;; passage, keeping both inside the block quote.
-        (insert "\n>  \n> -- ")
-        (if rcf-sword-md-link-reference
-            (insert (format "[%s](https://www.biblegateway.com/passage/?search=%s&version=%s)"
-                            info
-                            (url-hexify-string reference)
-                            (url-hexify-string abbreviation)))
-          (insert info))
+        (insert "\n>  \n> "
+                (format rcf-sword-attribution-format
+                        (if rcf-sword-md-link-reference
+                            (format "[%s](https://www.biblegateway.com/passage/?search=%s&version=%s)"
+                                    info
+                                    (url-hexify-string reference)
+                                    (url-hexify-string abbreviation))
+                          info)))
         (when rcf-sword-md-use-footnotes
           (if (fboundp 'markdown-insert-footnote)
               (progn
@@ -800,7 +821,7 @@ nothing and say so."
                                 info (url-hexify-string reference))))
             (message "Footnotes need `markdown-mode'"))))
        (t
-        (insert "\n\n -- " info)))
+        (insert "\n\n " (format rcf-sword-attribution-format info))))
       (goto-char start))))
 
 ;;;; Commands
