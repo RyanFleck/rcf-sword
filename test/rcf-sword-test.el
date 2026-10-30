@@ -550,6 +550,22 @@
           (should (looking-at "³He restoreth"))
           (kill-buffer))))))
 
+(ert-deftest rcf-sword-test-reader-revert ()
+  ;; g re-renders from the database and stays on the same verse.
+  (rcf-sword-test--with-db
+    (save-window-excursion
+      (with-current-buffer (rcf-sword-read-book "Ps 23:2")
+        (unwind-protect
+            (progn
+              (sqlite-execute (rcf-sword--get-db)
+                              "UPDATE Bible SET Scripture=' Changed text.' WHERE Book=19 AND Chapter=1;")
+              (should-not (string-match-p "Changed text" (buffer-string)))
+              (call-interactively (keymap-lookup nil "g"))
+              (should (string-match-p "¹Changed text\\." (buffer-string)))
+              (should (looking-at "²He maketh"))
+              (should buffer-read-only))
+          (kill-buffer))))))
+
 (ert-deftest rcf-sword-test-read-book ()
   (rcf-sword-test--with-db
     (save-window-excursion

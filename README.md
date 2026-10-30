@@ -162,6 +162,7 @@ movement keys scroll the text. The keys are:
 | `]` / `[` | Next / previous chapter.               |
 | `C-x r m` | Bookmark the verse under the cursor. `C-x r b` reopens it later, even after restarting Emacs. |
 | `y`       | Copy the verse under the cursor.       |
+| `g`       | Re-read the book from the database, e.g. after switching translations. |
 | `w` / `c` | Toggle centered margins (olivetti).    |
 | `q`       | Close the reader.                      |
 

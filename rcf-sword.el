@@ -863,18 +863,33 @@ Each entry is (\"Chapter N\" . POSITION of its first verse)."
                 index)))
       (nreverse index))))
 
+(defun rcf-sword--reader-verse ()
+  "Return the reader's current verse: the one at point, or else the first.
+The result is (BOOK CHAPTER VERSE), or nil if the buffer has no verses."
+  (or (rcf-sword--verse-at-point)
+      (save-excursion
+        (goto-char (point-min))
+        (when-let ((match (text-property-search-forward 'rcf-sword-verse)))
+          (prop-match-value match)))))
+
+(defun rcf-sword--reader-revert (&rest _)
+  "Re-render the reader from the database, staying on the same verse.
+This is the reader's `revert-buffer-function', so \\`g' runs it: use it
+after switching translations, or after the database file changes."
+  (pcase-let ((`(,book ,chapter ,verse) (rcf-sword--reader-verse))
+              (inhibit-read-only t))
+    (erase-buffer)
+    (rcf-sword--render-book (rcf-sword--book-name-from-number book)
+                            (rcf-sword--verses book))
+    (or (rcf-sword--goto-verse chapter verse)
+        (goto-char (point-min)))))
+
 (defun rcf-sword--bookmark-make-record ()
   "Return a bookmark for the verse at point in the reader.
 Above the first verse, bookmark the first verse.  The bookmark stores a
 reference, like \"Psalms 23:3\", rather than a buffer position, so it
 survives re-rendering and switching translations."
-  (let ((reference
-         (rcf-sword--verse-reference
-          (or (rcf-sword--verse-at-point)
-              (save-excursion
-                (goto-char (point-min))
-                (prop-match-value
-                 (text-property-search-forward 'rcf-sword-verse)))))))
+  (let ((reference (rcf-sword--verse-reference (rcf-sword--reader-verse))))
     `(,reference (reference . ,reference)
                  (handler . rcf-sword-bookmark-jump))))
 
@@ -902,7 +917,9 @@ is on, so movement keys scroll the text.
               ;; M-x imenu (or consult-imenu) jumps to any chapter.
               imenu-create-index-function #'rcf-sword--reader-imenu-index
               ;; C-x r m bookmarks the verse at point.
-              bookmark-make-record-function #'rcf-sword--bookmark-make-record)
+              bookmark-make-record-function #'rcf-sword--bookmark-make-record
+              ;; g re-renders from the database.
+              revert-buffer-function #'rcf-sword--reader-revert)
   (scroll-lock-mode 1))
 
 (defun rcf-sword--insert-heading (title &optional underline-length)
@@ -962,7 +979,8 @@ the buffer.  Uses the `rcf-sword-verse' tags on each verse."
 BOOK may be abbreviated or partial, like \"Gen\" or \"Tim\".  It may
 end with a chapter or verse, like \"John 5\" or \"John 5:1\", to open
 the book at that point.  If the book is already open, switch to its
-buffer.  Centers the text when olivetti is installed.  See
+buffer; press \\`g' there to re-render it from the database.
+Centers the text when olivetti is installed.  See
 `rcf-sword-reader-mode' for the keys.  Return the reader buffer."
   (interactive
    (list (completing-read "Enter book or reference: " (rcf-sword--book-names))))
