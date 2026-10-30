@@ -33,3 +33,28 @@ jobs:
             echo "::error::Tag $GITHUB_REF_NAME doesn't match ';; Version: $version' in rcf-sword.el"
             exit 1
           fi
+
+  vanilla-install:
+    # Install the package the way the README's quick start does, in an Emacs
+    # with no config and only the default package archives, so a dependency
+    # that isn't built in (like the old s.el) fails here, not for users.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: purcell/setup-emacs@master
+        with:
+          version: "29.1"
+      - name: Install with package-vc and check the autoloads
+        run: |
+          set -euo pipefail
+          export HOME=$(mktemp -d)
+          emacs --batch --eval "(package-vc-install-from-checkout \"$PWD\" \"rcf-sword\")" 2>&1 | tee install.log
+          if grep -Ei "warning|error|failed" install.log; then
+            echo "::error::Installing rcf-sword printed warnings or errors"; exit 1
+          fi
+          # After a restart, the commands are autoloaded but nothing is loaded.
+          emacs --batch --eval "(progn
+            (package-activate-all)
+            (unless (and (autoloadp (symbol-function 'rcf-sword-insert-verse))
+                         (not (featurep 'rcf-sword)))
+              (error \"rcf-sword's commands aren't autoloaded\")))"
