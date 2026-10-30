@@ -22,7 +22,7 @@ and to be ready for a MELPA submission.
 | `test/`              | ERT tests. They build a tiny fixture `.bblx` on the fly.   |
 | `recipes/rcf-sword`  | MELPA recipe, kept here for when the package is submitted. |
 | `Makefile`           | `make compile`, `make checkdoc`, `make lint`, `make test`. |
-| `.github/workflows/` | CI that runs the Makefile targets on several Emacs versions. |
+| `.github/workflows/` | CI: the Makefile targets on several Emacs versions, a vanilla `package-vc` install, and a tag/`Version:` check. Actions are pinned to commit SHAs; `.github/dependabot.yml` proposes updates. |
 | `LICENSE`            | GPL-3.0-or-later.                                          |
 
 ## Packaging rules (distilled from the Elisp manual, MELPA and package-lint)

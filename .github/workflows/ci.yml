@@ -1,5 +1,9 @@
 name: CI
 
+# Actions are pinned to commit SHAs (with the release in a comment), so a
+# moved tag or branch can't change what runs here.  Dependabot proposes
+# updates; see .github/dependabot.yml.
+
 on:
   push:
   pull_request:
@@ -10,10 +14,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        emacs_version: ["29.1", "29.4", "30.1", "snapshot"]
+        # The oldest supported version, the latest of each release since,
+        # and the development snapshot for early warning of breakage.
+        emacs_version: ["29.1", "29.4", "30.2", "31.1", "snapshot"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: purcell/setup-emacs@master
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: purcell/setup-emacs@bdc64dc730ae1fcba200bfd52cb1b4cf6159cbe5 # v8.0
         with:
           version: ${{ matrix.emacs_version }}
       - name: Byte-compile, checkdoc, package-lint and ERT
@@ -25,7 +31,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Tag matches the Version header
         run: |
           version=$(sed -n 's/^;; Version: //p' rcf-sword.el)
@@ -40,8 +46,8 @@ jobs:
     # that isn't built in (like the old s.el) fails here, not for users.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: purcell/setup-emacs@master
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: purcell/setup-emacs@bdc64dc730ae1fcba200bfd52cb1b4cf6159cbe5 # v8.0
         with:
           version: "29.1"
       - name: Install with package-vc and check the autoloads
