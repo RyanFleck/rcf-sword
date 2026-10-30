@@ -389,7 +389,9 @@ an e-Sword Bible module."
   (let ((file (expand-file-name rcf-sword-bblx-file)))
     ;; Check first: `sqlite-open' would silently create an empty database.
     (unless (file-readable-p file)
-      (user-error "Can't read scripture database %s" file))
+      ;; Messages with apostrophes, like "Can't", go through "%s":
+      ;; `user-error' would otherwise curl them in a UTF-8 locale.
+      (user-error "%s" (format "Can't read scripture database %s" file)))
     (unless (and rcf-sword--db (equal file rcf-sword--db-file))
       (rcf-sword-close-database)
       (let ((db (sqlite-open file)))
@@ -401,8 +403,8 @@ an e-Sword Bible module."
                               db "SELECT COUNT(*) FROM sqlite_master WHERE type='table'
                                     AND lower(name) IN ('bible', 'details');"))))
           (sqlite-close db)
-          (user-error "%s isn't an e-Sword Bible module: it needs Bible and Details tables"
-                      file))
+          (user-error "%s" (format "%s isn't an e-Sword Bible module: it needs Bible and Details tables"
+                                   file)))
         (setq rcf-sword--db db
               rcf-sword--db-file file)))
     rcf-sword--db))
@@ -621,13 +623,13 @@ the chapter or the verse is what's missing."
                             (list number chapter)))))
     (cond
      ((null last-chapter)
-      (user-error "This translation doesn't include %s" name))
+      (user-error "%s" (format "This translation doesn't include %s" name)))
      ((null last-verse)
-      (user-error "%s ends at chapter %d, so there's no chapter %d"
-                  name last-chapter chapter))
+      (user-error "%s" (format "%s ends at chapter %d, so there's no chapter %d"
+                               name last-chapter chapter)))
      (t
-      (user-error "%s %d ends at verse %d, so there's no verse %d"
-                  name chapter last-verse verse)))))
+      (user-error "%s" (format "%s %d ends at verse %d, so there's no verse %d"
+                               name chapter last-verse verse))))))
 
 (defvar rcf-sword-reference-history nil
   "Minibuffer history of references typed at rcf-sword prompts.")

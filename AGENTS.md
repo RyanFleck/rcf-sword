@@ -133,5 +133,10 @@ Or just run `make` to run all four.
   by number in code, never by English name.
 - Keep functions small and pure where possible (parsing, formatting), so they
   can be unit-tested without a database.
+- Write messages with apostrophes as `(user-error "%s" (format "Can't ..."))`.
+  `user-error`'s format string goes through `format-message`, which curls
+  apostrophes in a UTF-8 locale (as on CI), so the text would vary by
+  machine. Keep `` `symbol' `` quoting in the format string itself, where
+  curling is intended. Run `make` under a UTF-8 locale to match CI.
 - Behaviour that differs by major mode uses `derived-mode-p`. Don't
   `require` org or markdown-mode just to check the mode.
