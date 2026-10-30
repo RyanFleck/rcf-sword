@@ -159,6 +159,7 @@ movement keys scroll the text. The keys are:
 | `j` / `k` | Scroll down / up.                      |
 | `l`       | Recenter.                              |
 | `n` / `p` | Scroll one line down / up.             |
+| `y`       | Copy the verse under the cursor.       |
 | `w` / `c` | Toggle centered margins (olivetti).    |
 | `q`       | Close the reader.                      |
 

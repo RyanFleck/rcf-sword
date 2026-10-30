@@ -83,6 +83,7 @@
 (require 'cl-lib)
 (require 'seq)
 (require 'subr-x)
+(require 'text-property-search)
 (require 'thingatpt)
 (require 'url-util)
 
@@ -636,9 +637,16 @@ left at the end of the inserted text."
                           (rcf-sword--start-is-continuation-p text))
                       " "
                     paragraph-break)))
-        (when show-verse-numbers
-          (insert (rcf-sword--superscript (nth 2 verse))))
-        (insert text)
+        (let ((verse-start (point)))
+          (when show-verse-numbers
+            (insert (rcf-sword--superscript (nth 2 verse))))
+          (insert text)
+          ;; In the reader, tag the verse with (BOOK CHAPTER VERSE), so
+          ;; commands can tell which verse point is on.  Inserted passages
+          ;; in the user's own buffers stay free of hidden properties.
+          (when (derived-mode-p 'rcf-sword-reader-mode)
+            (put-text-property verse-start (point)
+                               'rcf-sword-verse (butlast verse))))
         (setq previous text)))
     ;; A marker, because filling changes the text's length.
     (set-marker end (point))
@@ -787,7 +795,29 @@ set only for this buffer.  If olivetti isn't installed, just say so."
   ;; `scroll-lock-mode' remaps these to scroll the text one line at a
   ;; time, since the cursor is hidden.
   "n" #'next-line
-  "p" #'previous-line)
+  "p" #'previous-line
+  "y" #'rcf-sword-reader-copy-verse)
+
+(defun rcf-sword--verse-at-point ()
+  "Return (BOOK CHAPTER VERSE) for the verse at or before point, or nil.
+Between verses, this is the verse just before point.  Only the reader
+marks verses, with the `rcf-sword-verse' text property."
+  (or (get-text-property (point) 'rcf-sword-verse)
+      (when-let ((match (save-excursion
+                          (text-property-search-backward 'rcf-sword-verse))))
+        (prop-match-value match))))
+
+(defun rcf-sword--verse-reference (verse)
+  "Return a reference like \"Psalms 23:1\" for VERSE, a (BOOK CHAPTER VERSE)."
+  (pcase-let ((`(,book ,chapter ,number) verse))
+    (format "%s %d:%d" (rcf-sword--book-name-from-number book) chapter number)))
+
+(defun rcf-sword-reader-copy-verse ()
+  "Copy the verse at point, with its reference, to the kill ring."
+  (interactive)
+  (rcf-sword-copy-verse
+   (rcf-sword--verse-reference
+    (or (rcf-sword--verse-at-point) (user-error "No verse here")))))
 
 (define-derived-mode rcf-sword-reader-mode special-mode "Scripture"
   "Major mode for reading a book of scripture.

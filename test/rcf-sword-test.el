@@ -442,6 +442,35 @@
       (rcf-sword-insert-random-proverb)
       (should (string-match-p "Proverbs 1:1 KJV" (buffer-string))))))
 
+(ert-deftest rcf-sword-test-reader-verse-at-point ()
+  (rcf-sword-test--with-db
+    (save-window-excursion
+      (rcf-sword-read-book "Ps")
+      (with-current-buffer "Scripture: Psalms"
+        (unwind-protect
+            (progn
+              ;; Before the first verse there's no verse at point.
+              (goto-char (point-min))
+              (should-not (rcf-sword--verse-at-point))
+              (search-forward "restoreth")
+              (should (equal (rcf-sword--verse-at-point) '(19 23 3)))
+              ;; Between verses, it's the verse before.
+              (search-backward "still waters.")
+              (goto-char (match-end 0))
+              (should (equal (rcf-sword--verse-at-point) '(19 23 2)))
+              ;; y copies the verse at point with its reference.
+              (let ((kill-ring nil))
+                (goto-char (point-min))
+                (search-forward "shepherd")
+                (call-interactively (keymap-lookup nil "y"))
+                (should (equal (car kill-ring)
+                               "The LORD is my shepherd; I shall not want.\n\n -- Psalms 23:1 KJV"))))
+          (kill-buffer))))
+    ;; Passages inserted into the user's buffers carry no verse properties.
+    (with-temp-buffer
+      (rcf-sword-insert-verse "Ps 23:1")
+      (should-not (text-property-not-all (point-min) (point-max) 'rcf-sword-verse nil)))))
+
 (ert-deftest rcf-sword-test-read-book ()
   (rcf-sword-test--with-db
     (save-window-excursion
