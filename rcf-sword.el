@@ -324,7 +324,8 @@ finds Joshua, \"tim\" finds 1 Timothy and \"I Jn\" finds 1 John."
   "Return a connection to `rcf-sword-bblx-file', opening it if needed.
 If `rcf-sword-bblx-file' has changed since the connection was opened,
 close the old connection and open the new file.  Signal a `user-error'
-if SQLite is unavailable or the file is unset or unreadable."
+if SQLite is unavailable, the file is unset or unreadable, or it isn't
+an e-Sword Bible module."
   (unless (and (fboundp 'sqlite-available-p) (sqlite-available-p))
     (user-error "The rcf-sword package needs Emacs 29+ built with SQLite support"))
   (unless rcf-sword-bblx-file
@@ -335,8 +336,19 @@ if SQLite is unavailable or the file is unset or unreadable."
       (user-error "Can't read scripture database %s" file))
     (unless (and rcf-sword--db (equal file rcf-sword--db-file))
       (rcf-sword-close-database)
-      (setq rcf-sword--db (sqlite-open file)
-            rcf-sword--db-file file))
+      (let ((db (sqlite-open file)))
+        ;; Check it's a Bible module now, rather than failing later with a
+        ;; raw SQL error.  A file that isn't SQLite at all only fails on
+        ;; its first query ("file is not a database"), so catch that too.
+        (unless (ignore-error sqlite-error
+                  (= 2 (caar (sqlite-select
+                              db "SELECT COUNT(*) FROM sqlite_master WHERE type='table'
+                                    AND lower(name) IN ('bible', 'details');"))))
+          (sqlite-close db)
+          (user-error "%s isn't an e-Sword Bible module: it needs Bible and Details tables"
+                      file))
+        (setq rcf-sword--db db
+              rcf-sword--db-file file)))
     rcf-sword--db))
 
 (defun rcf-sword-close-database ()

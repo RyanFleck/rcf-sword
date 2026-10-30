@@ -305,6 +305,28 @@
   (let ((rcf-sword-bblx-file "/nonexistent/file.bblx"))
     (should-error (rcf-sword--get-db) :type 'user-error)))
 
+(ert-deftest rcf-sword-test-not-a-bible-module ()
+  ;; A file that isn't SQLite, and a SQLite file without the e-Sword
+  ;; tables, both get a friendly message instead of a raw SQL error.
+  (dolist (make-file
+           (list (lambda (file) (with-temp-file file (insert "Just some notes.\n")))
+                 (lambda (file)
+                   (let ((db (sqlite-open file)))
+                     (sqlite-execute db "CREATE TABLE Notes (Text TEXT);")
+                     (sqlite-close db)))))
+    (let* ((file (make-temp-file "rcf-sword-test" nil ".bblx"))
+           (rcf-sword-bblx-file file))
+      (unwind-protect
+          (progn
+            (funcall make-file file)
+            (rcf-sword-close-database)
+            (should (equal (rcf-sword-test--user-error #'rcf-sword--get-db)
+                           (format "%s isn't an e-Sword Bible module: it needs Bible and Details tables"
+                                   file)))
+            ;; The failed connection isn't kept.
+            (should-not rcf-sword--db))
+        (delete-file file)))))
+
 (ert-deftest rcf-sword-test-lookup ()
   (rcf-sword-test--with-db
     (should (equal (rcf-sword-translation-name) "King James Version"))
