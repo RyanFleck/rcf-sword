@@ -129,7 +129,7 @@ build from the `vX.Y.Z` release tags.
 | `rcf-sword-copy-verse`            | Copy a passage as plain text, to paste into email or chat. |
 | `rcf-sword-insert-random-verse`   | Insert a random verse.                                |
 | `rcf-sword-insert-random-proverb` | Insert a random verse from Proverbs.                  |
-| `rcf-sword-read-book`             | Open a whole book in a read-only reader buffer.       |
+| `rcf-sword-read-book`             | Open a whole book in a reader buffer. Add a chapter or verse (`John 5`, `John 5:1`) to open it there. |
 | `rcf-sword-close-database`        | Close the database, e.g. after switching translations. |
 
 References accept partial or abbreviated book names: `Gen 3`, `1 Cor 13:4-7`,

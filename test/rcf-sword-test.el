@@ -471,6 +471,33 @@
       (rcf-sword-insert-verse "Ps 23:1")
       (should-not (text-property-not-all (point-min) (point-max) 'rcf-sword-verse nil)))))
 
+(ert-deftest rcf-sword-test-read-book-at-reference ()
+  (rcf-sword-test--with-db
+    (save-window-excursion
+      (unwind-protect
+          (progn
+            ;; Open straight at a verse, then move within the open book.
+            (rcf-sword-read-book "Ps 23:3")
+            (with-current-buffer "Scripture: Psalms"
+              (should (looking-at "³He restoreth")))
+            (rcf-sword-read-book "Psalm 23:2")
+            (with-current-buffer "Scripture: Psalms"
+              (should (looking-at "²He maketh")))
+            ;; A chapter alone goes to its first verse.
+            (rcf-sword-read-book "Gen 1")
+            (with-current-buffer "Scripture: Genesis"
+              (should (looking-at "¹In the beginning")))
+            ;; A numbered book name alone is still a book, not a reference.
+            (should (equal (rcf-sword-test--user-error #'rcf-sword-read-book "1 John")
+                           "No verses found for 1 John"))
+            ;; Problems get the usual friendly messages.
+            (should (equal (rcf-sword-test--user-error #'rcf-sword-read-book "Ps 23:9")
+                           "Psalms 23 ends at verse 3, so there's no verse 9"))
+            (should (equal (rcf-sword-test--user-error #'rcf-sword-read-book "Ps 23:5-2")
+                           "The verses in \"23:5-2\" run backwards; did you mean 23:2-5?")))
+        (dolist (name '("Scripture: Psalms" "Scripture: Genesis"))
+          (when (get-buffer name) (kill-buffer name)))))))
+
 (ert-deftest rcf-sword-test-read-book ()
   (rcf-sword-test--with-db
     (save-window-excursion

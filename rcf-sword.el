@@ -868,27 +868,47 @@ with a superscript verse number."
       (rcf-sword--insert-lines chapter t))
     (insert "\n")))
 
-;; TODO: Accept "John 5" or "John 5:1" and jump right to that point when
-;; the book is opened.
+(defun rcf-sword--goto-verse (chapter &optional verse)
+  "Move point to VERSE of CHAPTER in the reader, or to CHAPTER's start.
+Return the new position, or nil (leaving point alone) if it isn't in
+the buffer.  Uses the `rcf-sword-verse' tags on each verse."
+  (when-let ((match (save-excursion
+                      (goto-char (point-min))
+                      (text-property-search-forward
+                       'rcf-sword-verse nil
+                       (lambda (_ found)
+                         (and found (= (nth 1 found) chapter)
+                              (or (null verse) (= (nth 2 found) verse))))))))
+    (goto-char (prop-match-beginning match))))
 
 ;;;###autoload
 (defun rcf-sword-read-book (book)
   "Open BOOK of the Bible in a read-only reader buffer.
-BOOK may be abbreviated or partial, like \"Gen\" or \"Tim\".  If the
-book is already open, switch to its buffer as is; kill that buffer to
-reload it, e.g. after changing translations.  Centers the text when
-olivetti is installed.  See `rcf-sword-reader-mode' for the keys."
+BOOK may be abbreviated or partial, like \"Gen\" or \"Tim\".  It may
+end with a chapter or verse, like \"John 5\" or \"John 5:1\", to open
+the book at that point.  If the book is already open, switch to its
+buffer.  Centers the text when olivetti is installed.  See
+`rcf-sword-reader-mode' for the keys."
   (interactive
-   (list (completing-read "Enter book: " (rcf-sword--book-names))))
+   (list (completing-read "Enter book or reference: " (rcf-sword--book-names))))
   (when (string-blank-p book)
     (user-error "Type a book name, like \"Genesis\" or \"Ps\""))
-  (let* ((data (or (rcf-sword--find-book (string-trim book))
-                   (user-error "%s" (rcf-sword--no-book-message book))))
-         (book-name (nth 2 data))
-         (buffer-name (concat "Scripture: " book-name))
-         (existing (get-buffer buffer-name)))
-    (if existing
-        (pop-to-buffer-same-window existing)
+  ;; If the last word starts with a digit, BOOK is a reference like
+  ;; "John 5:1"; check it like any other.  Otherwise it's just a name,
+  ;; which may itself start with a number, like "1 John".
+  (pcase-let* ((`(,book-str ,chapter ,verses)
+                (if (string-match-p " [0-9][^ ]*\\'" (string-trim book))
+                    (progn
+                      (when-let ((problem (rcf-sword--reference-problem book)))
+                        (user-error "%s" problem))
+                      (rcf-sword--parse-reference book))
+                  (list (string-trim book) nil nil)))
+               (data (or (rcf-sword--find-book book-str)
+                         (user-error "%s" (rcf-sword--no-book-message book))))
+               (book-name (nth 2 data))
+               (buffer-name (concat "Scripture: " book-name)))
+    (if (get-buffer buffer-name)
+        (pop-to-buffer-same-window buffer-name)
       (let ((verses (rcf-sword--verses (nth 1 data))))
         (unless verses
           (user-error "No verses found for %s" book-name))
@@ -901,7 +921,12 @@ olivetti is installed.  See `rcf-sword-reader-mode' for the keys."
           (pop-to-buffer-same-window (current-buffer))
           ;; Start centered, but stay quiet if olivetti isn't installed.
           (when (require 'olivetti nil t)
-            (rcf-sword-toggle-margins)))))))
+            (rcf-sword-toggle-margins)))))
+    (when chapter
+      (with-current-buffer buffer-name
+        (or (rcf-sword--goto-verse chapter (car verses))
+            ;; Say whether the chapter or the verse is missing.
+            (rcf-sword--missing-passage data chapter (car verses)))))))
 
 (provide 'rcf-sword)
 ;;; rcf-sword.el ends here
