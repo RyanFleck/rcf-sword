@@ -15,6 +15,7 @@
 
 (require 'ert)
 (require 'rcf-sword)
+(require 'bookmark)
 
 ;;;; Fixture
 
@@ -528,6 +529,25 @@
                              '("Chapter 1" "Chapter 2" "Chapter 23")))
               (goto-char (cdr (assoc "Chapter 23" (funcall imenu-create-index-function))))
               (should (looking-at "¹The LORD is my shepherd")))
+          (kill-buffer))))))
+
+(ert-deftest rcf-sword-test-reader-bookmarks ()
+  (rcf-sword-test--with-db
+    (save-window-excursion
+      (let (bookmark)
+        (with-current-buffer (rcf-sword-read-book "Ps 23:3")
+          (setq bookmark (funcall bookmark-make-record-function))
+          (should (equal (car bookmark) "Psalms 23:3"))
+          (should (equal (bookmark-prop-get bookmark 'reference) "Psalms 23:3"))
+          ;; Above the first verse, the first verse is bookmarked.
+          (goto-char (point-min))
+          (should (equal (car (funcall bookmark-make-record-function)) "Psalms 1:1"))
+          (kill-buffer))
+        ;; Jumping reopens the book at the verse and leaves it current.
+        (with-temp-buffer
+          (rcf-sword-bookmark-jump bookmark)
+          (should (equal (buffer-name) "Scripture: Psalms"))
+          (should (looking-at "³He restoreth"))
           (kill-buffer))))))
 
 (ert-deftest rcf-sword-test-read-book ()

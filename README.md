@@ -160,6 +160,7 @@ movement keys scroll the text. The keys are:
 | `l`       | Recenter.                              |
 | `n` / `p` | Scroll one line down / up.             |
 | `]` / `[` | Next / previous chapter.               |
+| `C-x r m` | Bookmark the verse under the cursor. `C-x r b` reopens it later, even after restarting Emacs. |
 | `y`       | Copy the verse under the cursor.       |
 | `w` / `c` | Toggle centered margins (olivetti).    |
 | `q`       | Close the reader.                      |

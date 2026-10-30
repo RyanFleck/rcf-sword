@@ -95,6 +95,8 @@
 (defvar olivetti-body-width)
 (defvar olivetti-minimum-body-width)
 (defvar imenu-create-index-function)
+(defvar bookmark-make-record-function)
+(declare-function bookmark-prop-get "bookmark" (bookmark prop))
 
 ;;;; Customization
 
@@ -861,6 +863,33 @@ Each entry is (\"Chapter N\" . POSITION of its first verse)."
                 index)))
       (nreverse index))))
 
+(defun rcf-sword--bookmark-make-record ()
+  "Return a bookmark for the verse at point in the reader.
+Above the first verse, bookmark the first verse.  The bookmark stores a
+reference, like \"Psalms 23:3\", rather than a buffer position, so it
+survives re-rendering and switching translations."
+  (let ((reference
+         (rcf-sword--verse-reference
+          (or (rcf-sword--verse-at-point)
+              (save-excursion
+                (goto-char (point-min))
+                (prop-match-value
+                 (text-property-search-forward 'rcf-sword-verse)))))))
+    `(,reference (reference . ,reference)
+                 (handler . rcf-sword-bookmark-jump))))
+
+;;;###autoload
+(defun rcf-sword-bookmark-jump (bookmark)
+  "Open the reader at the verse saved in BOOKMARK.
+This is the bookmark handler for reader bookmarks; it is autoloaded
+so bookmarks work before rcf-sword is loaded."
+  ;; `bookmark-jump' displays whatever buffer the handler leaves current.
+  (set-buffer (save-window-excursion
+                (rcf-sword-read-book (bookmark-prop-get bookmark 'reference)))))
+
+;; Label reader bookmarks in M-x list-bookmarks.
+(put 'rcf-sword-bookmark-jump 'bookmark-handler-type "Scripture")
+
 (define-derived-mode rcf-sword-reader-mode special-mode "Scripture"
   "Major mode for reading a book of scripture.
 The buffer is read-only, the cursor is hidden and `scroll-lock-mode'
@@ -871,7 +900,9 @@ is on, so movement keys scroll the text.
   (setq-local truncate-lines nil
               cursor-type nil
               ;; M-x imenu (or consult-imenu) jumps to any chapter.
-              imenu-create-index-function #'rcf-sword--reader-imenu-index)
+              imenu-create-index-function #'rcf-sword--reader-imenu-index
+              ;; C-x r m bookmarks the verse at point.
+              bookmark-make-record-function #'rcf-sword--bookmark-make-record)
   (scroll-lock-mode 1))
 
 (defun rcf-sword--insert-heading (title &optional underline-length)
@@ -932,7 +963,7 @@ BOOK may be abbreviated or partial, like \"Gen\" or \"Tim\".  It may
 end with a chapter or verse, like \"John 5\" or \"John 5:1\", to open
 the book at that point.  If the book is already open, switch to its
 buffer.  Centers the text when olivetti is installed.  See
-`rcf-sword-reader-mode' for the keys."
+`rcf-sword-reader-mode' for the keys.  Return the reader buffer."
   (interactive
    (list (completing-read "Enter book or reference: " (rcf-sword--book-names))))
   (when (string-blank-p book)
@@ -970,7 +1001,8 @@ buffer.  Centers the text when olivetti is installed.  See
       (with-current-buffer buffer-name
         (or (rcf-sword--goto-verse chapter (car verses))
             ;; Say whether the chapter or the verse is missing.
-            (rcf-sword--missing-passage data chapter (car verses)))))))
+            (rcf-sword--missing-passage data chapter (car verses)))))
+    (get-buffer buffer-name)))
 
 (provide 'rcf-sword)
 ;;; rcf-sword.el ends here
