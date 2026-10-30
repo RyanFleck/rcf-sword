@@ -353,36 +353,15 @@ if nothing matches."
 
 ;;;; Random verses
 
-;; A random verse is chosen by picking a book, then a chapter in it, then
-;; a verse in that chapter, each uniformly.  Verses in short books are
-;; therefore more likely than verses in long ones.  Chapters and verses
-;; are assumed to be numbered from 1 without gaps.
-
-(defun rcf-sword--random-chapter (book)
-  "Return a random chapter number in BOOK.
-Return 1 if BOOK isn't in the database."
-  (let ((max-chapter
-         (or (caar (rcf-sword--query
-                    "SELECT MAX(Chapter) FROM Bible WHERE Book=?;" (list book)))
-             0)))
-    (1+ (random (max 1 max-chapter)))))
-
-(defun rcf-sword--random-verse-number (book chapter)
-  "Return a random verse number in BOOK and CHAPTER.
-Return 1 if the chapter isn't in the database."
-  (let ((max-verse
-         (or (caar (rcf-sword--query
-                    "SELECT MAX(Verse) FROM Bible WHERE Book=? AND Chapter=?;"
-                    (list book chapter)))
-             0)))
-    (1+ (random (max 1 max-verse)))))
-
-(defun rcf-sword--random-verse-in-book (book)
-  "Return a random verse from BOOK as a list of one verse.
-Return nil if BOOK isn't in the database."
-  (let* ((chapter (rcf-sword--random-chapter book))
-         (verse (rcf-sword--random-verse-number book chapter)))
-    (rcf-sword--verses book chapter verse verse)))
+(defun rcf-sword--random-verse (&optional book)
+  "Return a random verse, as a list of one verse, or nil if none.
+With BOOK, a book number, pick from that book only.  Every verse is
+equally likely: SQLite shuffles the rows and keeps the first."
+  (rcf-sword--query
+   (concat "SELECT " rcf-sword--verse-columns " FROM Bible"
+           (if book " WHERE Book=?" "")
+           " ORDER BY RANDOM() LIMIT 1;")
+   (and book (list book))))
 
 ;;;; Parsing references
 
@@ -673,17 +652,14 @@ the database, say what's wrong and insert nothing."
 (defun rcf-sword-insert-random-verse ()
   "Insert a random verse at point."
   (interactive)
-  (rcf-sword--insert-passage
-   ;; Book numbers run from 1 to the number of books.
-   (rcf-sword--random-verse-in-book
-    (1+ (random (length rcf-sword-books))))))
+  (rcf-sword--insert-passage (rcf-sword--random-verse)))
 
 ;;;###autoload
 (defun rcf-sword-insert-random-proverb ()
   "Insert a random verse from Proverbs at point."
   (interactive)
   (rcf-sword--insert-passage
-   (rcf-sword--random-verse-in-book (rcf-sword--book-number "Proverbs"))))
+   (rcf-sword--random-verse (rcf-sword--book-number "Proverbs"))))
 
 ;;;; Book reader
 

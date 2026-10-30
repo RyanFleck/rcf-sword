@@ -323,6 +323,23 @@
     (should (equal (rcf-sword-test--user-error #'rcf-sword-read-book "Foo")
                    "No book matches \"Foo\"; try a name like \"Gen\", \"1 Cor\" or \"Psalms\""))))
 
+(ert-deftest rcf-sword-test-random-is-fair ()
+  ;; Every verse is equally likely, wherever it is.  The fixture has 7
+  ;; verses in 3 books, so with the old book-then-chapter-then-verse
+  ;; sampling Proverbs 1:1 came up a third of the time.  Now each verse
+  ;; should come up about 1/7 of the time: 700 draws give ~100 each.
+  (rcf-sword-test--with-db
+    (let ((counts (make-hash-table :test #'equal)))
+      (dotimes (_ 700)
+        (cl-incf (gethash (butlast (car (rcf-sword--random-verse)))
+                          counts 0)))
+      (should (= (hash-table-count counts) 7))
+      (maphash (lambda (_verse n) (should (< 50 n 160))) counts))
+    ;; With a book, only that book's verses are drawn.
+    (dotimes (_ 20)
+      (should (= (caar (rcf-sword--random-verse 19)) 19)))
+    (should-not (rcf-sword--random-verse 40))))
+
 (ert-deftest rcf-sword-test-random ()
   (rcf-sword-test--with-db
     (with-temp-buffer
