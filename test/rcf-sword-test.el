@@ -190,6 +190,16 @@
   ;; isn't a conjunction and isn't lowercase.
   (should-not (rcf-sword--start-is-continuation-p "And, behold")))
 
+(ert-deftest rcf-sword-test-footnotes-dont-break-paragraphs ()
+  ;; A footnote marker after a verse's closing semicolon used to hide the
+  ;; semicolon from the continuation check, starting a new paragraph.
+  (with-temp-buffer
+    (rcf-sword--insert-lines '((1 1 1 "The earth was void;{\\cf2\\super [1]}")
+                               (1 1 2 "The deep was dark."))
+                             nil)
+    (should (equal (buffer-string)
+                   "The earth was void; The deep was dark."))))
+
 (ert-deftest rcf-sword-test-strings-trim-verses ()
   ;; `string-trim' replaced `s-trim' on each verse's text, removing
   ;; spaces, tabs, carriage returns and newlines at either end.

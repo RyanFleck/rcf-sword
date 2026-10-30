@@ -620,7 +620,10 @@ left at the end of the inserted text."
         (paragraph-break (if (derived-mode-p 'markdown-mode) "\n> \n> " "\n\n"))
         (previous nil))
     (dolist (verse verses)
-      (let ((text (string-trim (nth 3 verse))))
+      ;; Remove footnote markers like {\cf2\super [18]} first, so the
+      ;; continuation checks below see the verse's real punctuation.
+      (let ((text (string-trim (replace-regexp-in-string
+                                "{[^}]*}" "" (nth 3 verse)))))
         (when previous
           (insert (if (or (rcf-sword--end-is-continuation-p previous)
                           (rcf-sword--start-is-continuation-p text))
@@ -630,13 +633,8 @@ left at the end of the inserted text."
           (insert (rcf-sword--superscript (nth 2 verse))))
         (insert text)
         (setq previous text)))
-    ;; A marker, because stripping and filling change the text's length.
+    ;; A marker, because filling changes the text's length.
     (set-marker end (point))
-    ;; For now, just remove footnote markers like {\cf2\super [18]}.
-    ;; Note that the continuation checks above see the raw text, so a
-    ;; verse ending in a marker after its punctuation isn't treated as
-    ;; continuing.
-    (replace-regexp-in-region "{[^}]*}" "" start end)
     (fill-region start end)
     (goto-char end)
     (set-marker end nil)))
