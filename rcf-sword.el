@@ -6,7 +6,7 @@
 ;; Assisted-by: Claude Code
 ;; Maintainer: Ryan Fleck <dev@ryanfleck.ca>
 ;; Created: 2024-08-01
-;; Version: 0.1.0
+;; Version: 0.2.0
 ;; Package-Requires: ((emacs "29.1") (s "1.13.0"))
 ;; Keywords: convenience, wp
 ;; URL: https://github.com/RyanFleck/rcf-sword
@@ -62,6 +62,9 @@
 ;;            All symbols renamed to the `rcf-sword-' prefix, the database
 ;;            path is now a defcustom opened lazily, markdown-mode and
 ;;            olivetti are optional, and Lamentations is book 25.
+;; 2026-10-30 0.2.0: Reader hides the cursor, scrolls with
+;;            `scroll-lock-mode', adds n/p keys and defaults to a 72
+;;            column body.  Books are grouped by section.
 
 ;;; Code:
 
@@ -75,6 +78,7 @@
 (declare-function olivetti-mode "ext:olivetti" (&optional arg))
 (defvar olivetti-mode)
 (defvar olivetti-body-width)
+(defvar olivetti-minimum-body-width)
 
 ;;;; Customization
 
@@ -86,7 +90,7 @@
 
 (defcustom rcf-sword-bblx-file nil
   "Path to the e-Sword style .bblx (SQLite) scripture database.
-For example \"~/emacs/sword/new.king.james.version.bblx\"."
+For example \"~/bibles/my-translation.bblx\"."
   :type '(choice (const :tag "Unset" nil) file))
 
 (defcustom rcf-sword-md-link-reference nil
@@ -98,7 +102,7 @@ For example \"~/emacs/sword/new.king.james.version.bblx\"."
 Requires `markdown-mode'."
   :type 'boolean)
 
-(defcustom rcf-sword-reader-width 70
+(defcustom rcf-sword-reader-width 72
   "Body width used when centering text in the book reader."
   :type 'integer)
 
@@ -107,11 +111,14 @@ Requires `markdown-mode'."
 ;; Sorry to those who use more than 66 books - you'll have to hack this
 ;; for yourself.
 (defconst rcf-sword-books
-  '((1 1 "Genesis")
+  '(;; THE OLD TESTAMENT
+    ;; The Law
+    (1 1 "Genesis")
     (1 2 "Exodus")
     (1 3 "Leviticus")
     (1 4 "Numbers")
     (1 5 "Deuteronomy")
+    ;; History
     (1 6 "Joshua")
     (1 7 "Judges")
     (1 8 "Ruth")
@@ -124,16 +131,19 @@ Requires `markdown-mode'."
     (1 15 "Ezra")
     (1 16 "Nehemiah")
     (1 17 "Esther")
+    ;; Wisdom & Poetry
     (1 18 "Job")
     (1 19 "Psalms")
     (1 20 "Proverbs")
     (1 21 "Ecclesiastes")
     (1 22 "Song of Solomon")
+    ;; Major Prophets
     (1 23 "Isaiah")
     (1 24 "Jeremiah")
     (1 25 "Lamentations")
     (1 26 "Ezekiel")
     (1 27 "Daniel")
+    ;; Minor Prophets
     (1 28 "Hosea")
     (1 29 "Joel")
     (1 30 "Amos")
@@ -146,11 +156,16 @@ Requires `markdown-mode'."
     (1 37 "Haggai")
     (1 38 "Zechariah")
     (1 39 "Malachi")
+
+    ;; THE NEW TESTAMENT
+    ;; The Gospels
     (2 40 "Matthew")
     (2 41 "Mark")
     (2 42 "Luke")
     (2 43 "John")
+    ;; Historical Book
     (2 44 "Acts")
+    ;; Paul's Letters
     (2 45 "Romans")
     (2 46 "1 Corinthians")
     (2 47 "2 Corinthians")
@@ -164,7 +179,8 @@ Requires `markdown-mode'."
     (2 55 "2 Timothy")
     (2 56 "Titus")
     (2 57 "Philemon")
-    (2 58 "Hebrews")
+    ;; General Letters
+    (2 58 "Hebrews") ; Authorship unknown, maybe Paul
     (2 59 "James")
     (2 60 "1 Peter")
     (2 61 "2 Peter")
@@ -172,6 +188,7 @@ Requires `markdown-mode'."
     (2 63 "2 John")
     (2 64 "3 John")
     (2 65 "Jude")
+    ;; Prophecy
     (2 66 "Revelation"))
   "Books of the Bible as (TESTAMENT NUMBER NAME) triples.
 NUMBER matches the Book column of the .bblx database.")
@@ -205,8 +222,8 @@ it.  Matching ignores case."
 ;;
 ;; Book  Chapter  Verse  Scripture
 ;; -----------------------------------------------------------------------
-;; 1     1        1      In the beginning God created the heavens and ...
-;; 1     1        2      The earth was without form, and void; and ...
+;; 1     1        1      In the beginning God created the heaven and the ...
+;; 1     1        2      And the earth was without form, and void; and ...
 ;;
 ;; Table 'Details' holds the translation's Description and Abbreviation.
 
@@ -257,11 +274,11 @@ changing the file behind `rcf-sword-bblx-file'."
                   "SELECT Description, Abbreviation FROM Details;")))))
 
 (defun rcf-sword-translation-name ()
-  "Return the translation name, like \"New King James Version\"."
+  "Return the translation name, like \"King James Version\"."
   (car (rcf-sword--db-info)))
 
 (defun rcf-sword-translation-abbreviation ()
-  "Return the translation abbreviation, like \"NKJV\"."
+  "Return the translation abbreviation, like \"KJV\"."
   (cadr (rcf-sword--db-info)))
 
 (defconst rcf-sword--verse-columns "Book, Chapter, Verse, Scripture"
@@ -485,7 +502,8 @@ Uses `olivetti-mode' when it is installed."
   (interactive)
   (if (require 'olivetti nil t)
       (progn
-        (setq-local olivetti-body-width rcf-sword-reader-width)
+        (setq-local olivetti-body-width rcf-sword-reader-width
+                    olivetti-minimum-body-width rcf-sword-reader-width)
         (olivetti-mode (if olivetti-mode -1 1)))
     (message "Install the olivetti package for centered reading")))
 
@@ -498,13 +516,17 @@ Uses `olivetti-mode' when it is installed."
   ;; VIM never dies - scroll direction is inverse of movement.
   "j" #'scroll-up-command
   "k" #'scroll-down-command
-  "l" #'recenter-top-bottom)
+  "l" #'recenter-top-bottom
+  "n" #'next-line
+  "p" #'previous-line)
 
 (define-derived-mode rcf-sword-reader-mode special-mode "Scripture"
   "Major mode for reading a book of scripture.
 
 \\{rcf-sword-reader-mode-map}"
-  (setq-local truncate-lines nil))
+  (setq-local truncate-lines nil
+              cursor-type nil)
+  (scroll-lock-mode 1))
 
 (defun rcf-sword--insert-heading (title &optional underline-length)
   "Insert centered TITLE with an underline of UNDERLINE-LENGTH dashes."
@@ -529,6 +551,9 @@ Uses `olivetti-mode' when it is installed."
        (seq-filter (lambda (verse) (eq (nth 1 verse) chapter)) verses)
        t))
     (insert "\n")))
+
+;; TODO: Accept "John 5" or "John 5:1" and jump right to that point when
+;; the book is opened.
 
 ;;;###autoload
 (defun rcf-sword-read-book (book)
