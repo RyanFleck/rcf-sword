@@ -589,7 +589,7 @@ can run without a database."
                                      " " (match-string 2 last-word)))))
        ((and (null numbers) (null (cdr words)))
         ;; A single word that isn't a chapter: probably a book on its own.
-        (if-let ((book (rcf-sword--find-book last-word)))
+        (if-let* ((book (rcf-sword--find-book last-word)))
             (format "Add a chapter number, like \"%s 1\"" (nth 2 book))
           (rcf-sword--no-book-message last-word)))
        ((null numbers)
@@ -681,7 +681,7 @@ Signal a `user-error' explaining the problem if STR is malformed (see
 that aren't in the database.  A range that only partly exists, like
 verses 5-99 of a 10-verse chapter, returns the verses that do.  See
 `rcf-sword--reference-spans' for the forms STR can take."
-  (when-let ((problem (rcf-sword--reference-problem str)))
+  (when-let* ((problem (rcf-sword--reference-problem str)))
     (user-error "%s" problem))
   (pcase-let* ((`(,book-str ,spans) (rcf-sword--reference-spans str))
                (book (rcf-sword--find-book book-str)))
@@ -1054,7 +1054,7 @@ set only for this buffer.  If olivetti isn't installed, just say so."
 Between verses, this is the verse just before point.  Only the reader
 marks verses, with the `rcf-sword-verse' text property."
   (or (get-text-property (point) 'rcf-sword-verse)
-      (when-let ((match (save-excursion
+      (when-let* ((match (save-excursion
                           (text-property-search-backward 'rcf-sword-verse))))
         (prop-match-value match))))
 
@@ -1115,7 +1115,7 @@ The result is (BOOK CHAPTER VERSE), or nil if the buffer has no verses."
   (or (rcf-sword--verse-at-point)
       (save-excursion
         (goto-char (point-min))
-        (when-let ((match (text-property-search-forward 'rcf-sword-verse)))
+        (when-let* ((match (text-property-search-forward 'rcf-sword-verse)))
           (prop-match-value match)))))
 
 (defun rcf-sword--reader-revert (&rest _)
@@ -1206,7 +1206,7 @@ with a superscript verse number."
   "Move point to VERSE of CHAPTER in the reader, or to CHAPTER's start.
 Return the new position, or nil (leaving point alone) if it isn't in
 the buffer.  Uses the `rcf-sword-verse' tags on each verse."
-  (when-let ((match (save-excursion
+  (when-let* ((match (save-excursion
                       (goto-char (point-min))
                       (text-property-search-forward
                        'rcf-sword-verse nil
@@ -1234,7 +1234,7 @@ Centers the text when olivetti is installed.  See
   (pcase-let* ((`(,book-str ,chapter ,verse)
                 (if (string-match-p " [0-9][^ ]*\\'" (string-trim book))
                     (progn
-                      (when-let ((problem (rcf-sword--reference-problem book)))
+                      (when-let* ((problem (rcf-sword--reference-problem book)))
                         (user-error "%s" problem))
                       (pcase-let ((`(,book-str ((,chapter ,verse . ,_)))
                                    (rcf-sword--reference-spans book)))

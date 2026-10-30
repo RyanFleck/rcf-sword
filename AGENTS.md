@@ -82,6 +82,8 @@ every change.
     plus a runtime `(require 'x nil t)` or `featurep` check.
 11. **Use `#'` for function references** and avoid obsolete or interactive-only
     functions in Lisp code (`beginning-of-buffer`, `replace-regexp`, ...).
+    Use `if-let*` / `when-let*`, not `if-let` / `when-let`, which are
+    obsolete as of Emacs 31 (CI compiles with warnings as errors there).
 12. **Docstrings pass `checkdoc`.** The first line is a complete sentence, and
     arguments are mentioned in CAPS.
 13. **The file byte-compiles with zero warnings** and passes `package-lint`.
