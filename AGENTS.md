@@ -100,7 +100,7 @@ every change.
     same commit. Squash-merging the release PR does this naturally. A bump
     made early in a multi-commit PR would make `:last-release` pick a commit
     that is missing the later fixes. Don't change `Version:` outside a
-    release.
+    release. CI fails on a `v*` tag that doesn't match `;; Version:`.
 15. **Don't ship non-package files to MELPA.** The recipe restricts `:files` to
     `rcf-sword.el`. README, tests and CI stay in the repo only.
 16. **AI attribution.** MELPA asks AI-assisted packages to carry an

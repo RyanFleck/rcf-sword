@@ -18,3 +18,18 @@ jobs:
           version: ${{ matrix.emacs_version }}
       - name: Byte-compile, checkdoc, package-lint and ERT
         run: make all
+
+  release-tag:
+    # On a release tag, check it names the version in the file's header, so
+    # a tag can't mark the wrong commit (v0.2.1 once marked a 0.2.0 commit).
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag matches the Version header
+        run: |
+          version=$(sed -n 's/^;; Version: //p' rcf-sword.el)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match ';; Version: $version' in rcf-sword.el"
+            exit 1
+          fi
