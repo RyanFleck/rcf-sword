@@ -151,7 +151,7 @@ what's wrong and inserts nothing. For example:
 | `Ps 23:5-2` | The verses in "23:5-2" run backwards; did you mean 23:2-5?  |
 | `Ps 151`    | Psalms ends at chapter 150, so there's no chapter 151       |
 
-In the reader buffer the cursor is hidden and `scroll-lock-mode` is on, so
+`M-x imenu` in the reader jumps to any chapter. In the reader buffer the cursor is hidden and `scroll-lock-mode` is on, so
 movement keys scroll the text. The keys are:
 
 | Key       | Does                                   |
@@ -159,6 +159,7 @@ movement keys scroll the text. The keys are:
 | `j` / `k` | Scroll down / up.                      |
 | `l`       | Recenter.                              |
 | `n` / `p` | Scroll one line down / up.             |
+| `]` / `[` | Next / previous chapter.               |
 | `y`       | Copy the verse under the cursor.       |
 | `w` / `c` | Toggle centered margins (olivetti).    |
 | `q`       | Close the reader.                      |

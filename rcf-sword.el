@@ -94,6 +94,7 @@
 (defvar olivetti-mode)
 (defvar olivetti-body-width)
 (defvar olivetti-minimum-body-width)
+(defvar imenu-create-index-function)
 
 ;;;; Customization
 
@@ -796,7 +797,9 @@ set only for this buffer.  If olivetti isn't installed, just say so."
   ;; time, since the cursor is hidden.
   "n" #'next-line
   "p" #'previous-line
-  "y" #'rcf-sword-reader-copy-verse)
+  "y" #'rcf-sword-reader-copy-verse
+  "]" #'rcf-sword-reader-next-chapter
+  "[" #'rcf-sword-reader-previous-chapter)
 
 (defun rcf-sword--verse-at-point ()
   "Return (BOOK CHAPTER VERSE) for the verse at or before point, or nil.
@@ -819,6 +822,45 @@ marks verses, with the `rcf-sword-verse' text property."
    (rcf-sword--verse-reference
     (or (rcf-sword--verse-at-point) (user-error "No verse here")))))
 
+(defun rcf-sword-reader-next-chapter (&optional previous)
+  "Move to the start of the next chapter, or the previous one if PREVIOUS.
+Chapters are found through the verse tags, so modules that skip
+chapter numbers work too."
+  (interactive)
+  (let* ((here (nth 1 (rcf-sword--verse-at-point))) ; nil above chapter 1
+         (match (save-excursion
+                  (funcall (if previous #'text-property-search-backward
+                             #'text-property-search-forward)
+                           'rcf-sword-verse nil
+                           (lambda (_ found)
+                             (and found
+                                  (or (null here)
+                                      (funcall (if previous #'< #'>)
+                                               (nth 1 found) here))))))))
+    (unless match
+      (user-error "No %s chapter" (if previous "previous" "next")))
+    (rcf-sword--goto-verse (nth 1 (prop-match-value match)))
+    ;; Show the chapter's heading, a few lines above its first verse.
+    (when (eq (window-buffer) (current-buffer))
+      (recenter 4))))
+
+(defun rcf-sword-reader-previous-chapter ()
+  "Move to the start of the previous chapter."
+  (interactive)
+  (rcf-sword-reader-next-chapter t))
+
+(defun rcf-sword--reader-imenu-index ()
+  "Return an `imenu' index of the reader's chapters.
+Each entry is (\"Chapter N\" . POSITION of its first verse)."
+  (save-excursion
+    (goto-char (point-min))
+    (let (index chapter match)
+      (while (setq match (text-property-search-forward 'rcf-sword-verse))
+        (unless (eql chapter (setq chapter (nth 1 (prop-match-value match))))
+          (push (cons (format "Chapter %d" chapter) (prop-match-beginning match))
+                index)))
+      (nreverse index))))
+
 (define-derived-mode rcf-sword-reader-mode special-mode "Scripture"
   "Major mode for reading a book of scripture.
 The buffer is read-only, the cursor is hidden and `scroll-lock-mode'
@@ -827,7 +869,9 @@ is on, so movement keys scroll the text.
 \\{rcf-sword-reader-mode-map}"
   ;; Wrap rather than truncate if the window is narrower than the text.
   (setq-local truncate-lines nil
-              cursor-type nil)
+              cursor-type nil
+              ;; M-x imenu (or consult-imenu) jumps to any chapter.
+              imenu-create-index-function #'rcf-sword--reader-imenu-index)
   (scroll-lock-mode 1))
 
 (defun rcf-sword--insert-heading (title &optional underline-length)

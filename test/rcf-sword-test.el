@@ -23,6 +23,8 @@
   '((1 1 1 " In the beginning God created the heaven and the earth.")
     (1 1 2 " And the earth was without form, and void;{\\cf2\\super [1]} and darkness was upon the face of the deep.")
     (1 1 3 " And God said, Let there be light: and there was light.")
+    (19 1 1 " Blessed is the man that walketh not in the counsel of the ungodly, nor standeth in the way of sinners, nor sitteth in the seat of the scornful.")
+    (19 2 1 " Why do the heathen rage, and the people imagine a vain thing?")
     (19 23 1 " The LORD is my shepherd; I shall not want.")
     (19 23 2 " He maketh me to lie down in green pastures: he leadeth me beside the still waters.")
     (19 23 3 " He restoreth my soul: he leadeth me in the paths of righteousness for his name's sake.")
@@ -420,16 +422,18 @@
                                " -- Psalms 23:2-3 KJV")))))))
 
 (ert-deftest rcf-sword-test-random-is-fair ()
-  ;; Every verse is equally likely, wherever it is.  The fixture has 7
-  ;; verses in 3 books, so with the old book-then-chapter-then-verse
-  ;; sampling Proverbs 1:1 came up a third of the time.  Now each verse
-  ;; should come up about 1/7 of the time: 700 draws give ~100 each.
+  ;; Every verse is equally likely, wherever it is.  With the old
+  ;; book-then-chapter-then-verse sampling, Proverbs 1:1 (alone in its
+  ;; book) came up a third of the time.  Now each of the fixture's N
+  ;; verses should come up about 1/N of the time: 100 N draws give ~100
+  ;; each, and 50-160 is over 5 standard deviations either side.
   (rcf-sword-test--with-db
-    (let ((counts (make-hash-table :test #'equal)))
-      (dotimes (_ 700)
+    (let ((counts (make-hash-table :test #'equal))
+          (n (length rcf-sword-test--verses)))
+      (dotimes (_ (* 100 n))
         (cl-incf (gethash (butlast (car (rcf-sword--random-verse)))
                           counts 0)))
-      (should (= (hash-table-count counts) 7))
+      (should (= (hash-table-count counts) n))
       (maphash (lambda (_verse n) (should (< 50 n 160))) counts))
     ;; With a book, only that book's verses are drawn.
     (dotimes (_ 20)
@@ -497,6 +501,34 @@
                            "The verses in \"23:5-2\" run backwards; did you mean 23:2-5?")))
         (dolist (name '("Scripture: Psalms" "Scripture: Genesis"))
           (when (get-buffer name) (kill-buffer name)))))))
+
+(ert-deftest rcf-sword-test-reader-chapters ()
+  ;; The fixture's Psalms has chapters 1, 2 and 23.
+  (rcf-sword-test--with-db
+    (save-window-excursion
+      (rcf-sword-read-book "Ps")
+      (with-current-buffer "Scripture: Psalms"
+        (unwind-protect
+            (progn
+              (goto-char (point-min))
+              ;; ] from above chapter 1 goes to chapter 1, then onwards,
+              ;; skipping the missing chapter numbers.
+              (dolist (chapter '(1 2 23))
+                (call-interactively (keymap-lookup nil "]"))
+                (should (equal (seq-take (rcf-sword--verse-at-point) 2)
+                               (list 19 chapter))))
+              (should-error (rcf-sword-reader-next-chapter) :type 'user-error)
+              (call-interactively (keymap-lookup nil "["))
+              (should (looking-at "¹Why do the heathen"))
+              (rcf-sword-reader-previous-chapter)
+              (should (looking-at "¹Blessed is the man"))
+              (should-error (rcf-sword-reader-previous-chapter) :type 'user-error)
+              ;; imenu lists every chapter, including the first.
+              (should (equal (mapcar #'car (funcall imenu-create-index-function))
+                             '("Chapter 1" "Chapter 2" "Chapter 23")))
+              (goto-char (cdr (assoc "Chapter 23" (funcall imenu-create-index-function))))
+              (should (looking-at "¹The LORD is my shepherd")))
+          (kill-buffer))))))
 
 (ert-deftest rcf-sword-test-read-book ()
   (rcf-sword-test--with-db
