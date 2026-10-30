@@ -94,6 +94,14 @@
   (should (equal (rcf-sword--parse-reference "Song  of Solomon 2") '("Song of Solomon" 2 nil)))
   (should (equal (rcf-sword--parse-reference "Jude") '("" 0 nil))))
 
+(ert-deftest rcf-sword-test-split-by-chapter ()
+  (should (equal (rcf-sword--split-by-chapter
+                  '((19 1 1 "a") (19 1 2 "b") (19 2 1 "c") (19 3 1 "d") (19 3 2 "e")))
+                 '(((19 1 1 "a") (19 1 2 "b"))
+                   ((19 2 1 "c"))
+                   ((19 3 1 "d") (19 3 2 "e")))))
+  (should-not (rcf-sword--split-by-chapter nil)))
+
 (ert-deftest rcf-sword-test-superscript ()
   (should (equal (rcf-sword--superscript 0) "⁰"))
   (should (equal (rcf-sword--superscript 123) "¹²³"))

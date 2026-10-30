@@ -810,6 +810,15 @@ TITLE if that is nil."
             "\n")
     (center-region start (point))))
 
+(defun rcf-sword--split-by-chapter (verses)
+  "Split VERSES, ordered by chapter, into one list of verses per chapter.
+Done in a single pass: a new group starts whenever the chapter changes."
+  (let (chapters)
+    (dolist (verse verses (nreverse (mapcar #'nreverse chapters)))
+      (if (eq (nth 1 verse) (nth 1 (caar chapters)))
+          (push verse (car chapters))
+        (push (list verse) chapters)))))
+
 (defun rcf-sword--render-book (book-name verses)
   "Insert the book called BOOK-NAME made of VERSES into the current buffer.
 VERSES must be ordered by chapter, then verse.  Each verse is shown
@@ -818,16 +827,15 @@ with a superscript verse number."
   (insert "\n\n\n")
   (rcf-sword--insert-heading book-name (+ 4 (length book-name)))
   (insert "\n")
-  (let ((chapters (seq-uniq (mapcar #'cadr verses))))
+  (let ((chapters (rcf-sword--split-by-chapter verses)))
     (dolist (chapter chapters)
       ;; Insert a chapter heading, except for the first chapter, which sits
       ;; under the book's title.
       (unless (eq chapter (car chapters))
         (insert "\n\n")
-        (rcf-sword--insert-heading (format "%s Ch. %d" book-name chapter)))
-      (rcf-sword--insert-lines
-       (seq-filter (lambda (verse) (eq (nth 1 verse) chapter)) verses)
-       t))
+        (rcf-sword--insert-heading
+         (format "%s Ch. %d" book-name (nth 1 (car chapter)))))
+      (rcf-sword--insert-lines chapter t))
     (insert "\n")))
 
 ;; TODO: Accept "John 5" or "John 5:1" and jump right to that point when
