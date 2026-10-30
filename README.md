@@ -2,6 +2,36 @@
 
 Emacs package for reading the Bible from a local SQLite (`.bblx`) file.
 
+## Quick start
+
+You need:
+
+- **Emacs 29.1 or newer.** To check that your Emacs has SQLite, press
+  `M-:`, type `(sqlite-available-p)` and press Enter. It should say `t`.
+- **`git`**, which Emacs uses to download the package.
+- **A Bible module** in e-Sword's `.bblx` format, saved somewhere like
+  `~/bibles/`.
+
+**1. Add these lines** to your Emacs init file, `~/.emacs.d/init.el`
+(create the file if it doesn't exist). Change the path to your `.bblx` file.
+
+```elisp
+(unless (package-installed-p 'rcf-sword)
+  (package-vc-install "https://github.com/RyanFleck/rcf-sword" :last-release))
+
+(setq rcf-sword-bblx-file "~/bibles/my-translation.bblx")
+```
+
+**2. Restart Emacs.** The first start downloads and installs the package.
+
+**3. Try it.** Press `M-x`, run `rcf-sword-insert-verse`, and type
+`John 3:16`. Or run `rcf-sword-read-book` and type `Psalms`.
+
+That's it. There's nothing else to install, and no package archive to set
+up. To update later, run `M-x package-vc-upgrade` and choose `rcf-sword`.
+
+## What it does
+
 `rcf-sword` reads an e-Sword style `.bblx` database with the SQLite support
 built into Emacs 29+. With it you can insert passages into your notes, or read
 a whole book in a distraction-free reader buffer.
@@ -17,13 +47,17 @@ a whole book in a distraction-free reader buffer.
 
 - Emacs 29.1 or newer, built with SQLite support. Check with
   `M-: (sqlite-available-p)`.
-- [`s`](https://github.com/magnars/s.el), installed automatically.
+- `git`, for installing straight from GitHub.
+- No other packages. rcf-sword only uses libraries built into Emacs.
 - Optional: [`markdown-mode`](https://github.com/jrblevin/markdown-mode)
   for footnotes, and [`olivetti`](https://github.com/rnkn/olivetti) for
   centered reading.
 - A `.bblx` Bible module.
 
-## Installation
+## Other ways to install
+
+The quick start uses `package-vc`. These are the details, and the
+alternatives if you use another package manager.
 
 ### Emacs 29+ built-in (`package-vc`)
 
@@ -100,6 +134,16 @@ build from the `vX.Y.Z` release tags.
 References accept partial or abbreviated book names: `Gen 3`, `1 Cor 13:4-7`,
 `Tim 2`.
 
+If a reference can't be read, or isn't in your Bible module, rcf-sword says
+what's wrong and inserts nothing. For example:
+
+| You type    | rcf-sword says                                              |
+|-------------|-------------------------------------------------------------|
+| `Jude`      | Add a chapter number, like "Jude 1"                         |
+| `John3:16`  | Put a space before the chapter, like "John 3:16"            |
+| `Ps 23:5-2` | The verses in "23:5-2" run backwards; did you mean 23:2-5?  |
+| `Ps 151`    | Psalms ends at chapter 150, so there's no chapter 151       |
+
 In the reader buffer the cursor is hidden and `scroll-lock-mode` is on, so
 movement keys scroll the text. The keys are:
 
@@ -133,3 +177,39 @@ Dependencies for the checks are installed into `./.elpa`. See
 ## License
 
 GPL-3.0-or-later. See [`LICENSE`](LICENSE).
+
+## Interesting notes
+
+Findings from replacing the s.el library with functions built into Emacs
+(version 0.2.2).
+
+**The swap changed nothing.** A one-off script compared the last s.el-based
+release (0.2.0) with the built-in version over about 90 tricky inputs:
+whitespace variants, mixed case, regexp characters, Unicode and empty
+strings. All 17,383 comparisons matched. The tests that now pin this
+behaviour also pass when run against the old s.el code.
+
+**How references are read:**
+
+- Book names match regardless of case, first by how a name starts, then by
+  anything inside it, in Bible order. So `TIM` finds 1 Timothy, and `OHN`
+  finds John before 1 John.
+- Characters like `.`, `*`, `[` or `\` in a book name are matched literally.
+  They never act as wildcards, so `J.hn` finds nothing.
+- Extra spaces are fine: `Song  of   Solomon 2:1` works. Before 0.2.2 only
+  spaces separated words, so a pasted tab or non-breaking space broke a
+  reference. Now any whitespace works.
+- A trailing colon or dash is forgiven: `Ps 23:` gives the whole chapter,
+  and `Ps 23:1-` gives verse 1.
+- A blank reference used to show a raw Lisp error (`wrong-type-argument`),
+  with s.el too. Since 0.2.2, malformed references get a friendly message
+  instead (see [Usage](#usage)).
+
+**For contributors:**
+
+- `s-split` was a thin wrapper around the built-in `split-string`. Both treat
+  the separator as a regular expression, not literal text.
+- `string-join` takes its arguments in the opposite order to `s-join`:
+  `(string-join LIST SEP)` versus `(s-join SEP LIST)`.
+- [`AGENTS.md`](AGENTS.md) has a full table of s.el functions and their
+  built-in equivalents.
