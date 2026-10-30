@@ -134,6 +134,16 @@ build from the `vX.Y.Z` release tags.
 References accept partial or abbreviated book names: `Gen 3`, `1 Cor 13:4-7`,
 `Tim 2`.
 
+If a reference can't be read, or isn't in your Bible module, rcf-sword says
+what's wrong and inserts nothing. For example:
+
+| You type    | rcf-sword says                                              |
+|-------------|-------------------------------------------------------------|
+| `Jude`      | Add a chapter number, like "Jude 1"                         |
+| `John3:16`  | Put a space before the chapter, like "John 3:16"            |
+| `Ps 23:5-2` | The verses in "23:5-2" run backwards; did you mean 23:2-5?  |
+| `Ps 151`    | Psalms ends at chapter 150, so there's no chapter 151       |
+
 In the reader buffer the cursor is hidden and `scroll-lock-mode` is on, so
 movement keys scroll the text. The keys are:
 
@@ -186,14 +196,14 @@ behaviour also pass when run against the old s.el code.
   finds John before 1 John.
 - Characters like `.`, `*`, `[` or `\` in a book name are matched literally.
   They never act as wildcards, so `J.hn` finds nothing.
-- Extra spaces are fine: `Song  of   Solomon 2:1` works. But only spaces
-  separate words, so a tab or a non-breaking space inside a reference
-  doesn't.
+- Extra spaces are fine: `Song  of   Solomon 2:1` works. Before 0.2.2 only
+  spaces separated words, so a pasted tab or non-breaking space broke a
+  reference. Now any whitespace works.
 - A trailing colon or dash is forgiven: `Ps 23:` gives the whole chapter,
   and `Ps 23:1-` gives verse 1.
-- Known issue: a blank reference shows a raw Lisp error
-  (`wrong-type-argument`) rather than a friendly message. It did the same
-  with s.el.
+- A blank reference used to show a raw Lisp error (`wrong-type-argument`),
+  with s.el too. Since 0.2.2, malformed references get a friendly message
+  instead (see [Usage](#usage)).
 
 **For contributors:**
 

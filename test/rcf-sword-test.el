@@ -135,9 +135,9 @@
     (should-not (rcf-sword--find-book needle))))
 
 (ert-deftest rcf-sword-test-strings-parse-whitespace ()
-  ;; `string-trim' replaced `s-trim', and `split-string' on " " with
-  ;; OMIT-NULLS replaced `s-split'.  Outer whitespace of any kind is
-  ;; trimmed, and runs of spaces between words collapse.
+  ;; `split-string' with OMIT-NULLS replaced `s-trim' and `s-split'.
+  ;; Outer whitespace of any kind is ignored, and runs of spaces between
+  ;; words collapse.
   (should (equal (rcf-sword--parse-reference " \t1 Cor 13:4-7\r\n ")
                  '("1 Cor" 13 (4 7))))
   (should (equal (rcf-sword--parse-reference "1   Cor   13")
@@ -145,8 +145,10 @@
   ;; `string-join' replaced `s-join': book words rejoin with single spaces.
   (should (equal (rcf-sword--parse-reference "Song  of   Solomon 2:1")
                  '("Song of Solomon" 2 (1))))
-  ;; Only spaces separate words; a tab inside the reference doesn't.
-  (should (equal (rcf-sword--parse-reference "Ps\t23") '("" 0 nil))))
+  ;; Since 0.2.2, tabs, newlines and non-breaking spaces separate words
+  ;; too.  (With s.el only spaces did, so "Ps\t23" was one word.)
+  (should (equal (rcf-sword--parse-reference "Ps\t23") '("Ps" 23 nil)))
+  (should (equal (rcf-sword--parse-reference "1\u00a0Cor\n13:4") '("1 Cor" 13 (4)))))
 
 (ert-deftest rcf-sword-test-strings-parse-verse-ranges ()
   ;; `split-string' on ":" (keeping empty parts) and on "-" (omitting
@@ -157,9 +159,9 @@
   (should (equal (rcf-sword--parse-reference "Ps :1") '("Ps" 0 (1)))))
 
 (ert-deftest rcf-sword-test-strings-blank-reference ()
-  ;; A blank reference is rejected, as it was with s.el.
-  (should-error (rcf-sword--lookup ""))
-  (should-error (rcf-sword--lookup "   ")))
+  ;; A blank reference is rejected, with a friendly message since 0.2.2.
+  (should-error (rcf-sword--lookup "") :type 'user-error)
+  (should-error (rcf-sword--lookup "   ") :type 'user-error))
 
 (ert-deftest rcf-sword-test-strings-first-word ()
   ;; `split-string' with OMIT-NULLS replaced `s-split' when taking a
@@ -180,6 +182,54 @@
                              nil)
     (should (equal (buffer-string)
                    "In the beginning. And the earth was void."))))
+
+;;;; Malformed input
+
+(defun rcf-sword-test--user-error (function &rest args)
+  "Call FUNCTION with ARGS and return its `user-error' message, or nil."
+  (condition-case err
+      (progn (apply function args) nil)
+    (user-error (error-message-string err))))
+
+(ert-deftest rcf-sword-test-reference-problems ()
+  ;; Each kind of malformed reference gets a message saying what's wrong
+  ;; and how to fix it.  None of this needs a database.
+  (pcase-dolist
+      (`(,input ,message)
+       '(("" "Type a reference, like \"John 3:16\", \"Gen 1\" or \"1 Cor 13:4-7\"")
+         (" \t " "Type a reference, like \"John 3:16\", \"Gen 1\" or \"1 Cor 13:4-7\"")
+         ("Jude" "Add a chapter number, like \"Jude 1\"")
+         ("rev" "Add a chapter number, like \"Revelation 1\"")
+         ("Foo" "No book matches \"Foo\"; try a name like \"Gen\", \"1 Cor\" or \"Psalms\"")
+         ("Foo 3" "No book matches \"Foo\"; try a name like \"Gen\", \"1 Cor\" or \"Psalms\"")
+         ("John3:16" "Put a space before the chapter, like \"John 3:16\"")
+         ("1 John3" "Put a space before the chapter, like \"1 John 3\"")
+         ("3:16" "Add a book name before \"3:16\", like \"John 3:16\"")
+         ("Ps abc" "Can't read \"abc\" as a chapter and verses; use a form like 3, 3:16 or 3:16-18")
+         ("Ps 23:a" "Can't read \"23:a\" as a chapter and verses; use a form like 3, 3:16 or 3:16-18")
+         ("Ps 23:1-2-3" "Can't read \"23:1-2-3\" as a chapter and verses; use a form like 3, 3:16 or 3:16-18")
+         ("Ps 23::1" "Can't read \"23::1\" as a chapter and verses; use a form like 3, 3:16 or 3:16-18")
+         ("Ps :1" "Can't read \":1\" as a chapter and verses; use a form like 3, 3:16 or 3:16-18")
+         ("Ps -1" "Can't read \"-1\" as a chapter and verses; use a form like 3, 3:16 or 3:16-18")
+         ("Ps 0" "Chapters and verses start at 1, so \"0\" doesn't exist")
+         ("Ps 23:0" "Chapters and verses start at 1, so \"23:0\" doesn't exist")
+         ("Ps 23:5-2" "The verses in \"23:5-2\" run backwards; did you mean 23:2-5?")))
+    (should (equal (cons input (rcf-sword--reference-problem input))
+                   (cons input message)))))
+
+(ert-deftest rcf-sword-test-reference-problems-accepts-valid ()
+  ;; Well-formed references pass, including the forgiving forms.
+  (dolist (input '("Ps 23" "Ps 23:" "Ps 23:1" "Ps 23:1-" "Ps 23:1-2"
+                   " 1 Cor 13:4-7 " "Song of Solomon 2" "Ps\t23" "gen 1"))
+    (should (equal (cons input (rcf-sword--reference-problem input))
+                   (list input)))))
+
+(ert-deftest rcf-sword-test-malformed-input-needs-no-database ()
+  ;; Malformed input is reported before the database is opened, so the
+  ;; message is accurate even when the database isn't set up.
+  (let ((rcf-sword-bblx-file nil))
+    (should (equal (rcf-sword-test--user-error #'rcf-sword--lookup "Jude")
+                   "Add a chapter number, like \"Jude 1\""))))
 
 ;;;; Database-backed
 
@@ -242,6 +292,36 @@
                              ">  \n"
                              "> -- [Psalms 23:1-2 KJV](https://www.biblegateway.com/passage/"
                              "?search=Psalms%2023%3A1-2&version=KJV)"))))))
+
+(ert-deftest rcf-sword-test-missing-passages ()
+  ;; Well-formed references that aren't in the database say what's
+  ;; missing.  The fixture has Genesis 1, Psalms 23 and Proverbs 1.
+  (rcf-sword-test--with-db
+    (should (equal (rcf-sword-test--user-error #'rcf-sword--lookup "Matt 1")
+                   "This translation doesn't include Matthew"))
+    (should (equal (rcf-sword-test--user-error #'rcf-sword--lookup "Ps 151")
+                   "Psalms ends at chapter 23, so there's no chapter 151"))
+    (should (equal (rcf-sword-test--user-error #'rcf-sword--lookup "Ps 23:50-60")
+                   "Psalms 23 ends at verse 3, so there's no verse 50"))
+    ;; A range that only partly exists returns the verses that do.
+    (should (equal (mapcar #'cl-caddr (rcf-sword--lookup "Ps 23:2-50")) '(2 3)))))
+
+(ert-deftest rcf-sword-test-insert-malformed-leaves-buffer-alone ()
+  (rcf-sword-test--with-db
+    (with-temp-buffer
+      (insert "notes")
+      (should (equal (rcf-sword-test--user-error #'rcf-sword-insert-verse "Ps 23:5-2")
+                     "The verses in \"23:5-2\" run backwards; did you mean 23:2-5?"))
+      (should (equal (rcf-sword-test--user-error #'rcf-sword-insert-verse "Ps 99")
+                     "Psalms ends at chapter 23, so there's no chapter 99"))
+      (should (equal (buffer-string) "notes")))))
+
+(ert-deftest rcf-sword-test-read-book-malformed ()
+  (rcf-sword-test--with-db
+    (should (equal (rcf-sword-test--user-error #'rcf-sword-read-book "")
+                   "Type a book name, like \"Genesis\" or \"Ps\""))
+    (should (equal (rcf-sword-test--user-error #'rcf-sword-read-book "Foo")
+                   "No book matches \"Foo\"; try a name like \"Gen\", \"1 Cor\" or \"Psalms\""))))
 
 (ert-deftest rcf-sword-test-random ()
   (rcf-sword-test--with-db

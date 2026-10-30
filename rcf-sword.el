@@ -72,8 +72,10 @@
 ;;            no longer name a particular translation.
 ;; 2026-10-30 0.2.2: Use built-in string functions instead of s.el, so
 ;;            the package has no dependencies beyond Emacs 29.1 and
-;;            installs on a vanilla Emacs without MELPA.  (The v0.2.1
-;;            tag marks a docs-only commit, so this release is 0.2.2.)
+;;            installs on a vanilla Emacs without MELPA.  Malformed
+;;            references and passages missing from the database now get
+;;            a friendly message saying what's wrong.  (The v0.2.1 tag
+;;            marks a docs-only commit, so this release is 0.2.2.)
 
 ;;; Code:
 
@@ -384,14 +386,20 @@ Return nil if BOOK isn't in the database."
 
 ;;;; Parsing references
 
+(defconst rcf-sword--word-separators "[ \t\n\r\f\v\u00a0]+"
+  "Regexp matching the whitespace between words of a reference.
+Includes tabs and non-breaking spaces, which are easy to paste in.")
+
 (defun rcf-sword--parse-reference (str)
   "Parse a reference STR like \"1 John 3:1-2\".
-Return (BOOK CHAPTER VERSES).  BOOK is everything before the last
-word, as typed (it may be partial, and is \"\" if STR is one word).
+Words are separated by any run of `rcf-sword--word-separators'.
+Return (BOOK CHAPTER VERSES).  BOOK is the words before the last one,
+joined by single spaces (it may be partial, and is \"\" if STR is one
+word).
 CHAPTER is a number, 0 if the last word doesn't start with one.
 VERSES is nil for a whole chapter, (VERSE) for one verse, or
 \(FIRST LAST) for a range."
-  (let* ((words (split-string (string-trim str) " " t))
+  (let* ((words (split-string str rcf-sword--word-separators t))
          (chapter-verse (car (last words)))
          (book (string-join (butlast words) " "))
          (chapter-verse-split (split-string chapter-verse ":"))
@@ -402,16 +410,110 @@ VERSES is nil for a whole chapter, (VERSE) for one verse, or
           (string-to-number chapter)
           (when verses? (mapcar #'string-to-number verses)))))
 
+;;;; Checking references
+;;
+;; Malformed input is reported with `user-error', which Emacs shows as a
+;; plain message in the echo area, without a backtrace or the debugger.
+;; Each message says what's wrong and gives an example of the fix.
+
+(defconst rcf-sword--chapter-verse-regexp
+  (rx bos (group (+ digit))
+      (? ":" (? (group (+ digit)) (? "-" (group (* digit)))))
+      eos)
+  "Match a chapter and optional verses, like 3, 3:16 or 3:16-18.
+Group 1 is the chapter, group 2 the first verse and group 3 the last
+verse.  A trailing colon or dash, as in 3: or 3:16-, is allowed.")
+
+(defconst rcf-sword--missing-space-regexp
+  (rx bos (group (* nonl) alpha) (group digit (* (in digit ":-"))) eos)
+  "Match a book name run into its chapter, like John3:16.
+Group 1 is the book and group 2 the chapter and verses.")
+
+(defun rcf-sword--no-book-message (book-str)
+  "Return a message saying no book matches BOOK-STR."
+  (format "No book matches \"%s\"; try a name like \"Gen\", \"1 Cor\" or \"Psalms\""
+          book-str))
+
+(defun rcf-sword--reference-problem (str)
+  "Return a message explaining what's wrong with the reference STR.
+Return nil if STR is well formed and names a known book.  This only
+checks the form of STR, not whether the database has the passage, so it
+can run without a database."
+  (let* ((words (split-string str rcf-sword--word-separators t))
+         (last-word (car (last words)))
+         (book-str (string-join (butlast words) " "))
+         ;; (CHAPTER FIRST-VERSE LAST-VERSE), with nil for parts not given,
+         ;; or nil if LAST-WORD isn't a chapter and verses.
+         (numbers
+          (when (and last-word
+                     (string-match rcf-sword--chapter-verse-regexp last-word))
+            (mapcar (lambda (group)
+                      (let ((digits (match-string group last-word)))
+                        (and digits (not (string-empty-p digits))
+                             (string-to-number digits))))
+                    '(1 2 3)))))
+    (pcase-let ((`(,chapter ,first ,last) numbers))
+      (cond
+       ((null words)
+        "Type a reference, like \"John 3:16\", \"Gen 1\" or \"1 Cor 13:4-7\"")
+       ((and (null numbers)
+             (string-match rcf-sword--missing-space-regexp last-word))
+        (format "Put a space before the chapter, like \"%s\""
+                (string-trim (concat book-str " " (match-string 1 last-word)
+                                     " " (match-string 2 last-word)))))
+       ((and (null numbers) (null (cdr words)))
+        ;; A single word that isn't a chapter: probably a book on its own.
+        (if-let ((book (rcf-sword--find-book last-word)))
+            (format "Add a chapter number, like \"%s 1\"" (nth 2 book))
+          (rcf-sword--no-book-message last-word)))
+       ((null numbers)
+        (format "Can't read \"%s\" as a chapter and verses; use a form like 3, 3:16 or 3:16-18"
+                last-word))
+       ((string-empty-p book-str)
+        (format "Add a book name before \"%s\", like \"John %s\"" last-word last-word))
+       ((memq 0 numbers)
+        (format "Chapters and verses start at 1, so \"%s\" doesn't exist" last-word))
+       ((and first last (< last first))
+        (format "The verses in \"%s\" run backwards; did you mean %d:%d-%d?"
+                last-word chapter last first))
+       ((null (rcf-sword--find-book book-str))
+        (rcf-sword--no-book-message book-str))))))
+
+(defun rcf-sword--missing-passage (book chapter verse)
+  "Signal a `user-error' saying the database lacks a passage.
+BOOK is a book triple, CHAPTER a chapter number and VERSE the first
+verse asked for, or nil for a whole chapter.  Say whether the book,
+the chapter or the verse is what's missing."
+  (let* ((number (nth 1 book))
+         (name (nth 2 book))
+         (last-chapter (caar (rcf-sword--query
+                              "SELECT MAX(Chapter) FROM Bible WHERE Book=?;"
+                              (list number))))
+         (last-verse (caar (rcf-sword--query
+                            "SELECT MAX(Verse) FROM Bible WHERE Book=? AND Chapter=?;"
+                            (list number chapter)))))
+    (cond
+     ((null last-chapter)
+      (user-error "This translation doesn't include %s" name))
+     ((null last-verse)
+      (user-error "%s ends at chapter %d, so there's no chapter %d"
+                  name last-chapter chapter))
+     (t
+      (user-error "%s %d ends at verse %d, so there's no verse %d"
+                  name chapter last-verse verse)))))
+
 (defun rcf-sword--lookup (str)
   "Return the verses described by the reference STR.
-Signal a `user-error' if no book matches.  Return nil if the book
-matches but the chapter or verses aren't in the database."
+Signal a `user-error' explaining the problem if STR is malformed (see
+`rcf-sword--reference-problem') or names a book, chapter or verses
+that aren't in the database.  A range that only partly exists, like
+verses 5-99 of a 10-verse chapter, returns the verses that do."
+  (when-let ((problem (rcf-sword--reference-problem str)))
+    (user-error "%s" problem))
   (pcase-let* ((`(,book-str ,chapter ,verses) (rcf-sword--parse-reference str))
-               (book (and (not (string-empty-p book-str))
-                          (rcf-sword--book-number book-str))))
-    (unless book
-      (user-error "Couldn't find a book matching \"%s\"" book-str))
-    (rcf-sword--verses book chapter (car verses) (cadr verses))))
+               (book (rcf-sword--find-book book-str)))
+    (or (rcf-sword--verses (nth 1 book) chapter (car verses) (cadr verses))
+        (rcf-sword--missing-passage book chapter (car verses)))))
 
 ;;;; Formatting
 
@@ -562,7 +664,8 @@ nothing and say so."
 REFERENCE looks like \"Gen 3\" (a whole chapter), \"John 3:16\" or
 \"1 Cor 13:4-7\".  Book names may be abbreviated or partial.  The
 passage is formatted for the current major mode; see
-`rcf-sword--insert-passage'."
+`rcf-sword--insert-passage'.  If REFERENCE is malformed or isn't in
+the database, say what's wrong and insert nothing."
   (interactive (list (read-string "Enter verse: ")))
   (rcf-sword--insert-passage (rcf-sword--lookup reference)))
 
@@ -666,9 +769,10 @@ reload it, e.g. after changing translations.  Centers the text when
 olivetti is installed.  See `rcf-sword-reader-mode' for the keys."
   (interactive
    (list (completing-read "Enter book: " (rcf-sword--book-names))))
-  (let* ((data (or (rcf-sword--find-book book)
-                   (user-error "Couldn't find a book starting with or including `%s' - try again?"
-                               book)))
+  (when (string-blank-p book)
+    (user-error "Type a book name, like \"Genesis\" or \"Ps\""))
+  (let* ((data (or (rcf-sword--find-book (string-trim book))
+                   (user-error "%s" (rcf-sword--no-book-message book))))
          (book-name (nth 2 data))
          (buffer-name (concat "Scripture: " book-name))
          (existing (get-buffer buffer-name)))
