@@ -717,6 +717,36 @@ It contains VERSES, a list of (BOOK CHAPTER VERSE TEXT)."
               (should buffer-read-only))
           (kill-buffer))))))
 
+(ert-deftest rcf-sword-test-search ()
+  (rcf-sword-test--with-db
+    (save-window-excursion
+      (unwind-protect
+          (progn
+            ;; Case is ignored, and footnote markers don't show.
+            (rcf-sword-search "HE LEADETH")
+            (with-current-buffer "*Scripture search*"
+              (should (equal (buffer-string)
+                             (concat "2 verses contain \"HE LEADETH\":\n\n"
+                                     "Psalms 23:2: He maketh me to lie down in green pastures: he leadeth me beside the still waters.\n"
+                                     "Psalms 23:3: He restoreth my soul: he leadeth me in the paths of righteousness for his name's sake.\n")))
+              ;; Point starts on the first hit; n moves to the next, and
+              ;; RET opens the reader there.
+              (should (looking-at "Psalms 23:2"))
+              (call-interactively (keymap-lookup nil "n"))
+              (should (looking-at "Psalms 23:3"))
+              (push-button))
+            (with-current-buffer "Scripture: Psalms"
+              (should (looking-at "³He restoreth")))
+            (rcf-sword-search "void;")
+            (with-current-buffer "*Scripture search*"
+              (should-not (string-match-p "cf2" (buffer-string))))
+            ;; Wildcard characters are literal, and no match is a message.
+            (should (equal (rcf-sword-test--user-error #'rcf-sword-search "%")
+                           "No verses contain \"%\""))
+            (should-error (rcf-sword-search " ") :type 'user-error))
+        (dolist (name '("*Scripture search*" "Scripture: Psalms"))
+          (when (get-buffer name) (kill-buffer name)))))))
+
 (ert-deftest rcf-sword-test-read-book ()
   (rcf-sword-test--with-db
     (save-window-excursion

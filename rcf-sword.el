@@ -43,6 +43,7 @@
 ;;   M-x rcf-sword-insert-random-verse   Insert a random verse.
 ;;   M-x rcf-sword-insert-random-proverb Insert a random proverb.
 ;;   M-x rcf-sword-read-book             Read a whole book in a reader buffer.
+;;   M-x rcf-sword-search                List the verses containing some text.
 ;;   M-x rcf-sword-close-database        Close the database, e.g. after
 ;;                                       switching translations.
 ;;
@@ -698,6 +699,11 @@ Used to mark verse numbers inline, as in \"¹In the beginning\"."
              (number-to-string number)
              ""))
 
+(defun rcf-sword--verse-text (verse)
+  "Return VERSE's text, without footnote markers or surrounding space.
+Markers look like {\\cf2\\super [18]}; for now they're simply removed."
+  (string-trim (replace-regexp-in-string "{[^}]*}" "" (nth 3 verse))))
+
 (defun rcf-sword--insert-lines (verses show-verse-numbers)
   "Insert VERSES at point, one paragraph per run of connected verses.
 A verse starts a new paragraph unless the previous verse ends with
@@ -713,10 +719,9 @@ left at the end of the inserted text."
         (paragraph-break (if (derived-mode-p 'markdown-mode) "\n> \n> " "\n\n"))
         (previous nil))
     (dolist (verse verses)
-      ;; Remove footnote markers like {\cf2\super [18]} first, so the
-      ;; continuation checks below see the verse's real punctuation.
-      (let ((text (string-trim (replace-regexp-in-string
-                                "{[^}]*}" "" (nth 3 verse)))))
+      ;; Footnote markers are removed first, so the continuation checks
+      ;; below see the verse's real punctuation.
+      (let ((text (rcf-sword--verse-text verse)))
         (when previous
           (insert (if (or (rcf-sword--end-is-continuation-p previous)
                           (rcf-sword--start-is-continuation-p text))
@@ -917,6 +922,53 @@ translations can be compared.  Point is left at the start of the first."
   (rcf-sword--insert-passage
    ;; By number, not name, so it works when the books are renamed.
    (rcf-sword--random-verse 20)))
+
+;;;; Search
+
+(defvar-keymap rcf-sword-search-mode-map
+  :doc "Keymap for `rcf-sword-search-mode'."
+  :parent special-mode-map
+  "n" #'forward-button
+  "p" #'backward-button
+  "TAB" #'forward-button)
+
+(define-derived-mode rcf-sword-search-mode special-mode "Scripture Search"
+  "Major mode for a list of verses found by `rcf-sword-search'.
+Each reference is a button: \\`RET' opens the reader at that verse.
+
+\\{rcf-sword-search-mode-map}")
+
+;;;###autoload
+(defun rcf-sword-search (text)
+  "List the verses containing TEXT, ignoring case.
+Each reference in the list opens the reader at that verse."
+  (interactive (list (read-string "Search scripture: ")))
+  (when (string-blank-p text)
+    (user-error "Type a word or phrase to search for"))
+  ;; instr() matches TEXT literally, unlike LIKE, where % and _ are
+  ;; wildcards.  lower() on both sides ignores case (for ASCII letters).
+  (let ((verses (rcf-sword--query
+                 (concat "SELECT " rcf-sword--verse-columns " FROM Bible"
+                         " WHERE instr(lower(Scripture), lower(?))"
+                         " ORDER BY Book, Chapter, Verse;")
+                 (list text))))
+    (unless verses
+      (user-error "No verses contain \"%s\"" text))
+    (with-current-buffer (get-buffer-create "*Scripture search*")
+      (rcf-sword-search-mode)
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert (format "%d verses contain \"%s\":\n\n" (length verses) text))
+        (dolist (verse verses)
+          (let ((reference (rcf-sword--verse-reference verse)))
+            (insert-text-button reference
+                                'action (lambda (_) (rcf-sword-read-book reference))
+                                'follow-link t)
+            (insert ": " (rcf-sword--verse-text verse) "\n"))))
+      (highlight-regexp (regexp-quote text) 'match)
+      (goto-char (point-min))
+      (forward-button 1)
+      (pop-to-buffer (current-buffer)))))
 
 ;;;; Book reader
 
