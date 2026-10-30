@@ -130,6 +130,7 @@ build from the `vX.Y.Z` release tags.
 | `rcf-sword-insert-random-verse`   | Insert a random verse.                                |
 | `rcf-sword-insert-random-proverb` | Insert a random verse from Proverbs.                  |
 | `rcf-sword-read-book`             | Open a whole book in a reader buffer. Add a chapter or verse (`John 5`, `John 5:1`) to open it there. |
+| `rcf-sword-verse-of-the-day`      | Show today's verse, the same all day. `C-u` inserts it. From Lisp, it returns the text, e.g. for your `*scratch*` message. |
 | `rcf-sword-search`                | List every verse containing a word or phrase. Press `RET` on one to open it in the reader. |
 | `rcf-sword-switch-translation`    | Switch between the translations in `rcf-sword-bblx-files`. Open readers update. |
 | `rcf-sword-insert-verse-compare`  | Insert a passage from every translation, one after another, to compare them. |

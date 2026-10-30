@@ -592,6 +592,31 @@ It contains VERSES, a list of (BOOK CHAPTER VERSE TEXT)."
         (rcf-sword-insert-random-proverb)
         (should (string-suffix-p " -- Sprüche 1:1 KJV" (buffer-string)))))))
 
+(ert-deftest rcf-sword-test-verse-of-the-day ()
+  (rcf-sword-test--with-db
+    (let* ((morning (encode-time '(0 0 8 30 10 2026 nil nil nil)))
+           (evening (encode-time '(0 0 22 30 10 2026 nil nil nil)))
+           (tomorrow (encode-time '(0 0 8 31 10 2026 nil nil nil)))
+           (today (rcf-sword--verse-of-the-day morning)))
+      ;; One verse, the same all day, and a different one the next day.
+      (should (= (length today) 1))
+      (should (equal (rcf-sword--verse-of-the-day evening) today))
+      (should-not (equal (rcf-sword--verse-of-the-day tomorrow) today))
+      ;; A week of days visits a week of different verses.
+      (should (= 7 (length (seq-uniq
+                            (mapcar (lambda (day)
+                                      (rcf-sword--verse-of-the-day
+                                       (encode-time (list 0 0 8 day 11 2026 nil nil nil))))
+                                    (number-sequence 1 7))))))
+      ;; The command returns plain text, and inserts with a prefix argument.
+      (cl-letf (((symbol-function 'rcf-sword--verse-of-the-day)
+                 (lambda (&optional _) today)))
+        (let ((text (rcf-sword-verse-of-the-day)))
+          (should (string-match-p " -- .* KJV\\'" text))
+          (with-temp-buffer
+            (rcf-sword-verse-of-the-day '(4))
+            (should (equal (buffer-string) text))))))))
+
 (ert-deftest rcf-sword-test-random ()
   (rcf-sword-test--with-db
     (with-temp-buffer

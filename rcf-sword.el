@@ -41,6 +41,7 @@
 ;;   M-x rcf-sword-switch-translation    Choose from `rcf-sword-bblx-files'.
 ;;   M-x rcf-sword-insert-verse-compare  Insert a passage in each translation.
 ;;   M-x rcf-sword-insert-random-verse   Insert a random verse.
+;;   M-x rcf-sword-verse-of-the-day      Show (or with C-u, insert) today's verse.
 ;;   M-x rcf-sword-insert-random-proverb Insert a random proverb.
 ;;   M-x rcf-sword-read-book             Read a whole book in a reader buffer.
 ;;   M-x rcf-sword-search                List the verses containing some text.
@@ -450,6 +451,20 @@ equally likely: SQLite shuffles the rows and keeps the first."
            (if book " WHERE Book=?" "")
            " ORDER BY RANDOM() LIMIT 1;")
    (and book (list book))))
+
+;;;; Verse of the day
+
+(defun rcf-sword--verse-of-the-day (&optional time)
+  "Return the verse for TIME's day (today if nil), as a list of one verse.
+It's the same all day.  The day number times Knuth's multiplicative
+hash constant, modulo the number of verses, picks the verse: this is
+deterministic, spreads consecutive days across the whole Bible, and
+leaves Emacs's random number generator alone."
+  (let ((count (caar (rcf-sword--query "SELECT COUNT(*) FROM Bible;"))))
+    (rcf-sword--query
+     (concat "SELECT " rcf-sword--verse-columns " FROM Bible"
+             " ORDER BY Book, Chapter, Verse LIMIT 1 OFFSET ?;")
+     (list (mod (* (time-to-days time) 2654435761) count)))))
 
 ;;;; Parsing references
 
@@ -910,6 +925,20 @@ translations can be compared.  Point is left at the start of the first."
         (rcf-sword-insert-verse reference)))
     (goto-char start)
     (set-marker end nil)))
+
+;;;###autoload
+(defun rcf-sword-verse-of-the-day (&optional insert)
+  "Show today's verse in the echo area; with prefix argument INSERT, insert it.
+The verse is the same all day.  Return it as plain text, so Lisp can
+use it too, e.g. in `initial-scratch-message' or a dashboard."
+  (interactive "P")
+  (let* ((verses (rcf-sword--verse-of-the-day))
+         (text (with-temp-buffer
+                 (rcf-sword--insert-passage verses)
+                 (buffer-string))))
+    (cond (insert (rcf-sword--insert-passage verses))
+          ((called-interactively-p 'interactive) (message "%s" text)))
+    text))
 
 ;;;###autoload
 (defun rcf-sword-insert-random-verse ()
