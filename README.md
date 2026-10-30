@@ -31,6 +31,16 @@ a whole book in a distraction-free reader buffer.
 (package-vc-install "https://github.com/RyanFleck/rcf-sword")
 ```
 
+This installs the newest commit. To install the latest release instead,
+pass `:last-release`, or use `C-u M-x package-vc-install`:
+
+```elisp
+(package-vc-install "https://github.com/RyanFleck/rcf-sword" :last-release)
+```
+
+`package-vc` defines a release as the latest commit that changed the
+`Version:` header. It doesn't look at git tags.
+
 ### `use-package` with `:vc` (Emacs 30+)
 
 ```elisp
@@ -39,6 +49,9 @@ a whole book in a distraction-free reader buffer.
   :custom
   (rcf-sword-bblx-file "~/bibles/my-translation.bblx"))
 ```
+
+`:rev :newest` tracks the newest commit. Leave `:rev` out to get the latest
+release, which is the `:vc` default.
 
 On Emacs 29, install the package with `package-vc-install` first, then use
 `use-package` without `:vc`.
@@ -71,7 +84,8 @@ or, with `use-package`:
 ### MELPA
 
 The package isn't on MELPA yet. A ready-made recipe is in
-[`recipes/rcf-sword`](recipes/rcf-sword).
+[`recipes/rcf-sword`](recipes/rcf-sword). Once it's there, MELPA Stable will
+build from the `vX.Y.Z` release tags.
 
 ## Usage
 
