@@ -136,6 +136,10 @@ References accept partial or abbreviated book names: `Gen 3`, `1 Cor 13:4-7`,
 and so do numbered books written as `I John`, `First John` or `1st Jn`. Add
 your own abbreviations with `rcf-sword-book-aliases`.
 
+When the cursor is on a reference like `John 3:16` in your text, the prompt
+offers it as the default, so you can just press Enter. Earlier references are
+in the prompt's history: press `M-p` to recall them.
+
 If a reference can't be read, or isn't in your Bible module, rcf-sword says
 what's wrong and inserts nothing. For example:
 

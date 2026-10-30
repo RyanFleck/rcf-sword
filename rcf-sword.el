@@ -82,6 +82,7 @@
 (require 'cl-lib)
 (require 'seq)
 (require 'subr-x)
+(require 'thingatpt)
 (require 'url-util)
 
 ;; Optional integrations.  These are only used after checking that the
@@ -521,6 +522,35 @@ the chapter or the verse is what's missing."
       (user-error "%s %d ends at verse %d, so there's no verse %d"
                   name chapter last-verse verse)))))
 
+(defvar rcf-sword-reference-history nil
+  "Minibuffer history of references typed at rcf-sword prompts.")
+
+(defconst rcf-sword--reference-at-point-regexp
+  "[1-3]? ?[[:alpha:]]+ [0-9]+\\(?::[0-9]+\\(?:-[0-9]+\\)?\\)?"
+  "Match a reference like \"John 3:16\" or \"1 Cor 13:4-7\" in text.
+Only one-word book names, optionally numbered, are recognized, so that
+the words before a reference aren't mistaken for part of the book.
+The optional space before the book lets `thing-at-point-looking-at',
+which backs up one character at a time, step from \"Cor\" through
+\" Cor\" to \"1 Cor\"; the match is trimmed afterwards.")
+
+(defun rcf-sword--reference-at-point ()
+  "Return the reference around point, like \"John 3:16\", or nil.
+Only return text that `rcf-sword--reference-problem' accepts, so
+ordinary words followed by a number aren't offered."
+  (when (thing-at-point-looking-at rcf-sword--reference-at-point-regexp 100)
+    (let ((reference (string-trim (match-string-no-properties 0))))
+      (unless (rcf-sword--reference-problem reference)
+        reference))))
+
+(defun rcf-sword--read-reference (prompt)
+  "Read a reference in the minibuffer with PROMPT.
+Offer the reference at point as the default, and keep a history in
+`rcf-sword-reference-history', so \\`M-p' recalls earlier ones."
+  (let ((default (rcf-sword--reference-at-point)))
+    (read-string (format-prompt prompt default)
+                 nil 'rcf-sword-reference-history default)))
+
 (defun rcf-sword--lookup (str)
   "Return the verses described by the reference STR.
 Signal a `user-error' explaining the problem if STR is malformed (see
@@ -680,12 +710,14 @@ nothing and say so."
 ;;;###autoload
 (defun rcf-sword-insert-verse (reference)
   "Insert the passage described by REFERENCE at point.
+Interactively, offer the reference at point as the default; earlier
+references are in the history (\\`M-p').
 REFERENCE looks like \"Gen 3\" (a whole chapter), \"John 3:16\" or
 \"1 Cor 13:4-7\".  Book names may be abbreviated or partial.  The
 passage is formatted for the current major mode; see
 `rcf-sword--insert-passage'.  If REFERENCE is malformed or isn't in
 the database, say what's wrong and insert nothing."
-  (interactive (list (read-string "Enter verse: ")))
+  (interactive (list (rcf-sword--read-reference "Enter verse")))
   (rcf-sword--insert-passage (rcf-sword--lookup reference)))
 
 ;;;###autoload

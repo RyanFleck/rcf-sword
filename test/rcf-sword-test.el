@@ -248,6 +248,34 @@
     (should (equal (rcf-sword-test--user-error #'rcf-sword--lookup "Jude")
                    "Add a chapter number, like \"Jude 1\""))))
 
+;;;; Prompting
+
+(ert-deftest rcf-sword-test-reference-at-point ()
+  (with-temp-buffer
+    (insert "As John 3:16 says, and 1 Cor 13:4-7 too; see Foo 3 or chapter 9.")
+    (pcase-dolist (`(,text ,reference)
+                   '(("John" "John 3:16") ("3:16" "John 3:16")
+                     ("Cor" "1 Cor 13:4-7") ("4-7" "1 Cor 13:4-7")
+                     ;; Not references: an unknown book, or no number.
+                     ("Foo" nil) ("chapter" nil) ("says" nil)))
+      (goto-char (point-min))
+      (search-forward text)
+      (backward-char)
+      (should (equal (cons text (rcf-sword--reference-at-point))
+                     (cons text reference))))))
+
+(ert-deftest rcf-sword-test-read-reference ()
+  ;; The prompt offers the reference at point and records history.
+  (with-temp-buffer
+    (insert "Read Ps 23 today")
+    (goto-char 8)
+    (cl-letf (((symbol-function 'read-string)
+               (lambda (prompt _initial history default)
+                 (list prompt history default))))
+      (should (equal (rcf-sword--read-reference "Enter verse")
+                     '("Enter verse (default Ps 23): "
+                       rcf-sword-reference-history "Ps 23"))))))
+
 ;;;; Database-backed
 
 (ert-deftest rcf-sword-test-missing-file ()
