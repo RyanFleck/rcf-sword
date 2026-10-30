@@ -4,7 +4,8 @@ Guidance for AI coding agents (and humans) working on `rcf-sword`.
 
 ## What this is
 
-`rcf-sword` is a single-file Emacs Lisp package. It reads scripture from a
+`rcf-sword` is an Emacs Lisp package: one core file, `rcf-sword.el`, plus the
+optional Org links in `rcf-sword-org.el`. It reads scripture from a
 local e-Sword style `.bblx` SQLite database, and either inserts passages into
 the current buffer (org, markdown or plain text) or opens a whole book in a
 read-only reader buffer.
@@ -102,7 +103,7 @@ every change.
     that is missing the later fixes. Don't change `Version:` outside a
     release. CI fails on a `v*` tag that doesn't match `;; Version:`.
 15. **Don't ship non-package files to MELPA.** The recipe restricts `:files` to
-    `rcf-sword.el`. README, tests and CI stay in the repo only.
+    `rcf-sword.el` and `rcf-sword-org.el`. README, tests and CI stay in the repo only.
 16. **AI attribution.** MELPA asks AI-assisted packages to carry an
     `;; Assisted-by: AGENT_NAME:MODEL_VERSION` line under `;; Author:`. Keep
     that line, and have the human maintainer fill in the model version

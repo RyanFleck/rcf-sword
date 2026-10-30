@@ -134,13 +134,13 @@ build from the `vX.Y.Z` release tags.
 | `rcf-sword-search`                | List every verse containing a word or phrase. Press `RET` on one to open it in the reader. |
 | `rcf-sword-switch-translation`    | Switch between the translations in `rcf-sword-bblx-files`. Open readers update. |
 | `rcf-sword-insert-verse-compare`  | Insert a passage from every translation, one after another, to compare them. |
-| `rcf-sword-close-database`        | Close the database, e.g. after switching translations. |
+| `rcf-sword-close-database`        | Close the database, e.g. after replacing the `.bblx` file. |
 
 References accept partial or abbreviated book names: `Gen 3`, `1 Cor 13:4-7`,
 `Tim 2`. Ranges can cross chapters (`John 3:16-4:2`), and you can list verses
-(`Ps 23:1, 4-6`). Common abbreviations work too (`Jn 3:16`, `Mt 5`, `Song of Songs 2`),
-and so do numbered books written as `I John`, `First John` or `1st Jn`. Add
-your own abbreviations with `rcf-sword-book-aliases`.
+(`Ps 23:1, 4-6`). Common abbreviations work too (`Jn 3:16`, `Mt 5`,
+`Song of Songs 2`), and so do numbered books written as `I John`, `First John`
+or `1st Jn`. Add your own abbreviations with `rcf-sword-book-aliases`.
 
 When the cursor is on a reference like `John 3:16` in your text, the prompt
 offers it as the default, so you can just press Enter. Earlier references are
@@ -167,8 +167,10 @@ Then `C-c C-l` offers `scripture:` as a link type and prompts for the
 reference, and exported links show their description (or the reference) as
 plain text.
 
-`M-x imenu` in the reader jumps to any chapter. In the reader buffer the cursor is hidden and `scroll-lock-mode` is on, so
-movement keys scroll the text. The keys are:
+### The reader
+
+In the reader the cursor is hidden and `scroll-lock-mode` is on, so movement
+keys scroll the text. `M-x imenu` jumps to any chapter. The keys are:
 
 | Key       | Does                                   |
 |-----------|----------------------------------------|
