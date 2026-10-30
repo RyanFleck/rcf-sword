@@ -6,7 +6,7 @@
 ;; Assisted-by: Claude Code
 ;; Maintainer: Ryan Fleck <dev@ryanfleck.ca>
 ;; Created: 2024-08-01
-;; Version: 0.2.1
+;; Version: 0.2.2
 ;; Package-Requires: ((emacs "29.1"))
 ;; Keywords: convenience, wp
 ;; URL: https://github.com/RyanFleck/rcf-sword
@@ -70,9 +70,10 @@
 ;;            `scroll-lock-mode', adds n/p keys and defaults to a 72
 ;;            column body.  Books are grouped by section.  Examples
 ;;            no longer name a particular translation.
-;; 2026-10-30 0.2.1: Use built-in string functions instead of s.el, so
+;; 2026-10-30 0.2.2: Use built-in string functions instead of s.el, so
 ;;            the package has no dependencies beyond Emacs 29.1 and
-;;            installs on a vanilla Emacs without MELPA.
+;;            installs on a vanilla Emacs without MELPA.  (The v0.2.1
+;;            tag marks a docs-only commit, so this release is 0.2.2.)
 
 ;;; Code:
 
