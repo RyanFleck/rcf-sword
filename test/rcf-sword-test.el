@@ -35,20 +35,27 @@
     (67 1 1 " The book of the words of Tobit."))
   "Verses inserted into the fixture database.")
 
+(defun rcf-sword-test--make-db (name abbreviation verses)
+  "Return a new temporary .bblx file for translation NAME (ABBREVIATION).
+It contains VERSES, a list of (BOOK CHAPTER VERSE TEXT)."
+  (let* ((file (make-temp-file "rcf-sword-test" nil ".bblx"))
+         (db (sqlite-open file)))
+    (sqlite-execute db "CREATE TABLE Bible (Book INT, Chapter INT, Verse INT, Scripture TEXT);")
+    (sqlite-execute db "CREATE TABLE Details (Description TEXT, Abbreviation TEXT);")
+    (sqlite-execute db "INSERT INTO Details VALUES (?, ?);" (list name abbreviation))
+    (dolist (verse verses)
+      (sqlite-execute db "INSERT INTO Bible VALUES (?, ?, ?, ?);" verse))
+    (sqlite-close db)
+    file))
+
 (defmacro rcf-sword-test--with-db (&rest body)
   "Run BODY with `rcf-sword-bblx-file' bound to a fixture database."
   (declare (indent 0) (debug t))
-  `(let* ((file (make-temp-file "rcf-sword-test" nil ".bblx"))
+  `(let* ((file (rcf-sword-test--make-db "King James Version" "KJV"
+                                         rcf-sword-test--verses))
           (rcf-sword-bblx-file file))
      (unwind-protect
          (progn
-           (let ((db (sqlite-open file)))
-             (sqlite-execute db "CREATE TABLE Bible (Book INT, Chapter INT, Verse INT, Scripture TEXT);")
-             (sqlite-execute db "CREATE TABLE Details (Description TEXT, Abbreviation TEXT);")
-             (sqlite-execute db "INSERT INTO Details VALUES ('King James Version', 'KJV');")
-             (dolist (verse rcf-sword-test--verses)
-               (sqlite-execute db "INSERT INTO Bible VALUES (?, ?, ?, ?);" verse))
-             (sqlite-close db))
            (rcf-sword-close-database)
            ,@body)
        (rcf-sword-close-database)
@@ -457,6 +464,34 @@
                    "Type a book name, like \"Genesis\" or \"Ps\""))
     (should (equal (rcf-sword-test--user-error #'rcf-sword-read-book "Foo")
                    "No book matches \"Foo\"; try a name like \"Gen\", \"1 Cor\" or \"Psalms\""))))
+
+(ert-deftest rcf-sword-test-several-translations ()
+  (rcf-sword-test--with-db
+    (let* ((other (rcf-sword-test--make-db
+                   "Plain Test Version" "PTV"
+                   '((19 23 1 " The Lord looks after me; I have all I need."))))
+           (rcf-sword-bblx-files (list rcf-sword-bblx-file other)))
+      (unwind-protect
+          (save-window-excursion
+            (with-temp-buffer
+              ;; One passage per translation, in order.
+              (rcf-sword-insert-verse-compare "Ps 23:1")
+              (should (= (point) (point-min)))
+              (should (equal (buffer-string)
+                             (concat "The LORD is my shepherd; I shall not want.\n\n"
+                                     " -- Psalms 23:1 KJV\n\n"
+                                     "The Lord looks after me; I have all I need.\n\n"
+                                     " -- Psalms 23:1 PTV"))))
+            ;; Switching re-renders open readers in the new translation.
+            (with-current-buffer (rcf-sword-read-book "Ps 23:1")
+              (cl-letf (((symbol-function 'completing-read)
+                         (lambda (&rest _) other)))
+                (call-interactively #'rcf-sword-switch-translation))
+              (should (equal rcf-sword-bblx-file other))
+              (should (equal (rcf-sword-translation-abbreviation) "PTV"))
+              (should (string-match-p "¹The Lord looks after me" (buffer-string)))
+              (kill-buffer)))
+        (delete-file other)))))
 
 (ert-deftest rcf-sword-test-formatting-templates ()
   (rcf-sword-test--with-db

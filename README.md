@@ -130,6 +130,8 @@ build from the `vX.Y.Z` release tags.
 | `rcf-sword-insert-random-verse`   | Insert a random verse.                                |
 | `rcf-sword-insert-random-proverb` | Insert a random verse from Proverbs.                  |
 | `rcf-sword-read-book`             | Open a whole book in a reader buffer. Add a chapter or verse (`John 5`, `John 5:1`) to open it there. |
+| `rcf-sword-switch-translation`    | Switch between the translations in `rcf-sword-bblx-files`. Open readers update. |
+| `rcf-sword-insert-verse-compare`  | Insert a passage from every translation, one after another, to compare them. |
 | `rcf-sword-close-database`        | Close the database, e.g. after switching translations. |
 
 References accept partial or abbreviated book names: `Gen 3`, `1 Cor 13:4-7`,
@@ -172,6 +174,7 @@ movement keys scroll the text. The keys are:
 | Variable                      | Default | Purpose                                         |
 |-------------------------------|---------|-------------------------------------------------|
 | `rcf-sword-bblx-file`         | `nil`   | Path to your `.bblx` file. **Required.**        |
+| `rcf-sword-bblx-files`        | `nil`   | All your `.bblx` files, one per translation, for switching and comparing. |
 | `rcf-sword-md-link-reference` | `nil`   | Link the Markdown attribution to Bible Gateway. |
 | `rcf-sword-md-use-footnotes`  | `nil`   | Add a Markdown footnote linking to the passage. |
 | `rcf-sword-books`             | 66 books | Book numbers and names. Rename them for another language, or add books such as the Apocrypha. |

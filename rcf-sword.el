@@ -38,6 +38,8 @@
 ;;
 ;;   M-x rcf-sword-insert-verse          Insert a passage, e.g. "John 3:16-18".
 ;;   M-x rcf-sword-copy-verse            Copy a passage, to paste elsewhere.
+;;   M-x rcf-sword-switch-translation    Choose from `rcf-sword-bblx-files'.
+;;   M-x rcf-sword-insert-verse-compare  Insert a passage in each translation.
 ;;   M-x rcf-sword-insert-random-verse   Insert a random verse.
 ;;   M-x rcf-sword-insert-random-proverb Insert a random proverb.
 ;;   M-x rcf-sword-read-book             Read a whole book in a reader buffer.
@@ -110,6 +112,12 @@
   "Path to the e-Sword style .bblx (SQLite) scripture database.
 For example \"~/bibles/my-translation.bblx\"."
   :type '(choice (const :tag "Unset" nil) file))
+
+(defcustom rcf-sword-bblx-files nil
+  "Paths to all your .bblx scripture databases, one per translation.
+`rcf-sword-switch-translation' chooses among them, and
+`rcf-sword-insert-verse-compare' inserts a passage from each."
+  :type '(repeat file))
 
 (defcustom rcf-sword-md-link-reference nil
   "When non-nil, link the Markdown attribution line to Bible Gateway.
@@ -858,6 +866,43 @@ to paste into an email or chat.  Arguments are as for
     (rcf-sword-insert-verse reference flip-numbers)
     (kill-new (buffer-string)))
   (message "Copied %s" reference))
+
+;;;###autoload
+(defun rcf-sword-switch-translation (file)
+  "Read scripture from FILE, one of `rcf-sword-bblx-files', from now on.
+Open readers are re-rendered in the new translation."
+  (interactive
+   (list (completing-read
+          "Translation: "
+          (or rcf-sword-bblx-files
+              (user-error "List your .bblx files in `rcf-sword-bblx-files'"))
+          nil t)))
+  ;; The database is reopened when `rcf-sword-bblx-file' changes.
+  (setq rcf-sword-bblx-file file)
+  (dolist (buffer (buffer-list))
+    (with-current-buffer buffer
+      (when (derived-mode-p 'rcf-sword-reader-mode)
+        (revert-buffer))))
+  (message "Reading from %s" (rcf-sword-translation-name)))
+
+;;;###autoload
+(defun rcf-sword-insert-verse-compare (reference)
+  "Insert REFERENCE from every translation in `rcf-sword-bblx-files'.
+The passages follow one another, each with its own attribution, so the
+translations can be compared.  Point is left at the start of the first."
+  (interactive (list (rcf-sword--read-reference "Compare verse")))
+  ;; END advances past each insertion (it's an insertion-type marker),
+  ;; so every passage goes after the previous one.
+  (let ((start (point))
+        (end (copy-marker (point) t)))
+    (dolist (file rcf-sword-bblx-files)
+      (let ((rcf-sword-bblx-file file))
+        (goto-char end)
+        (unless (= end start)
+          (insert "\n\n"))
+        (rcf-sword-insert-verse reference)))
+    (goto-char start)
+    (set-marker end nil)))
 
 ;;;###autoload
 (defun rcf-sword-insert-random-verse ()
