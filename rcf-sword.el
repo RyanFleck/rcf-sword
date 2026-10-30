@@ -401,30 +401,11 @@ closed or changed."
 Code reads verses positionally, as (BOOK CHAPTER VERSE TEXT), so name
 the columns rather than relying on the table's own column order.")
 
-(defun rcf-sword--verses (book &optional chapter verse-min verse-max)
-  "Return the verses of BOOK, in order.
-With CHAPTER, return only that chapter.  With VERSE-MIN too, return
-verses VERSE-MIN to VERSE-MAX inclusive; VERSE-MAX defaults to
-VERSE-MIN, giving a single verse.  CHAPTER is required when VERSE-MIN
-is given.  Each verse is (BOOK CHAPTER VERSE TEXT); the result is nil
-if nothing matches."
-  (cond
-   (verse-min
-    (rcf-sword--query
-     (concat "SELECT " rcf-sword--verse-columns " FROM Bible"
-             " WHERE Book=? AND Chapter=? AND Verse>=? AND Verse<=?"
-             " ORDER BY Verse;")
-     (list book chapter verse-min (or verse-max verse-min))))
-   (chapter
-    (rcf-sword--query
-     (concat "SELECT " rcf-sword--verse-columns " FROM Bible"
-             " WHERE Book=? AND Chapter=? ORDER BY Verse;")
-     (list book chapter)))
-   (t
-    (rcf-sword--query
-     (concat "SELECT " rcf-sword--verse-columns " FROM Bible"
-             " WHERE Book=? ORDER BY Chapter, Verse;")
-     (list book)))))
+(defun rcf-sword--verses (book)
+  "Return all of BOOK's verses, ordered by chapter and verse.
+Each verse is (BOOK CHAPTER VERSE TEXT).  See `rcf-sword--span-verses'
+for part of a book."
+  (rcf-sword--span-verses book 0 nil 9999 nil))
 
 ;;;; Random verses
 
@@ -444,25 +425,13 @@ equally likely: SQLite shuffles the rows and keeps the first."
   "Regexp matching the whitespace between words of a reference.
 Includes tabs and non-breaking spaces, which are easy to paste in.")
 
-(defun rcf-sword--parse-reference (str)
-  "Parse a reference STR like \"1 John 3:1-2\".
-Words are separated by any run of `rcf-sword--word-separators'.
-Return (BOOK CHAPTER VERSES).  BOOK is the words before the last one,
-joined by single spaces (it may be partial, and is \"\" if STR is one
-word).
-CHAPTER is a number, 0 if the last word doesn't start with one.
-VERSES is nil for a whole chapter, (VERSE) for one verse, or
-\(FIRST LAST) for a range."
-  (let* ((words (split-string str rcf-sword--word-separators t))
-         (chapter-verse (car (last words)))
-         (book (string-join (butlast words) " "))
-         (chapter-verse-split (split-string chapter-verse ":"))
-         (verses? (length> chapter-verse-split 1))
-         (chapter (car chapter-verse-split))
-         (verses (split-string (car (last chapter-verse-split)) "-" t)))
-    (list book
-          (string-to-number chapter)
-          (when verses? (mapcar #'string-to-number verses)))))
+(defun rcf-sword--reference-words (str)
+  "Split the reference STR into words.
+Words are separated by any run of `rcf-sword--word-separators'.  A
+space after a comma is dropped first, so \"Ps 23:1, 4\" reads like
+\"Ps 23:1,4\"."
+  (split-string (replace-regexp-in-string ", +" "," str)
+                rcf-sword--word-separators t))
 
 ;;;; Checking references
 ;;
@@ -471,12 +440,17 @@ VERSES is nil for a whole chapter, (VERSE) for one verse, or
 ;; Each message says what's wrong and gives an example of the fix.
 
 (defconst rcf-sword--chapter-verse-regexp
-  (rx bos (group (+ digit))
-      (? ":" (? (group (+ digit)) (? "-" (group (* digit)))))
+  (rx bos (group (+ digit))                     ; 1: chapter
+      (? ":"
+         (? (group (+ digit))                   ; 2: first verse
+            (? "-" (? (group (+ digit))         ; 3: last verse, or with 4,
+                      (? ":" (group (+ digit))))) ;  the last chapter and verse
+            (group (* "," (+ digit) (? "-" (+ digit)))))) ; 5: more verses
       eos)
-  "Match a chapter and optional verses, like 3, 3:16 or 3:16-18.
-Group 1 is the chapter, group 2 the first verse and group 3 the last
-verse.  A trailing colon or dash, as in 3: or 3:16-, is allowed.")
+  "Match a chapter and optional verses in a reference.
+For example 3, 3:16, 3:16-18, 3:16-4:2 (across chapters) or 3:16,18-20
+\(a list).  A trailing colon or dash, as in 3: or 3:16-, is allowed.
+See `rcf-sword--reference-spans' for the groups.")
 
 (defconst rcf-sword--missing-space-regexp
   (rx bos (group (* nonl) alpha) (group digit (* (in digit ":-"))) eos)
@@ -488,25 +462,62 @@ Group 1 is the book and group 2 the chapter and verses.")
   (format "No book matches \"%s\"; try a name like \"Gen\", \"1 Cor\" or \"Psalms\""
           book-str))
 
+(defun rcf-sword--reference-spans (str)
+  "Parse the reference STR into (BOOK SPANS), or nil if it isn't one.
+BOOK is the words before the last, joined by single spaces; it may be
+partial, and is \"\" if STR is one word.  SPANS lists the passages as
+\(FROM-CHAPTER FROM-VERSE TO-CHAPTER TO-VERSE), where a nil verse means
+the chapter's start or end.  Verses in a list belong to the last chapter
+named.  For example:
+  \"Gen 1\"         => (\"Gen\" ((1 nil 1 nil)))
+  \"John 3:16-4:2\" => (\"John\" ((3 16 4 2)))
+  \"Ps 23:1, 4-5\"  => (\"Ps\" ((23 1 23 1) (23 4 23 5)))
+Return nil when the last word isn't a chapter and verses; this only
+parses, and `rcf-sword--reference-problem' explains what's wrong."
+  (let* ((words (rcf-sword--reference-words str))
+         (last-word (car (last words))))
+    (when (and last-word
+               (string-match rcf-sword--chapter-verse-regexp last-word))
+      (let* ((group (lambda (n)
+                      (and (match-string n last-word)
+                           (string-to-number (match-string n last-word)))))
+             (chapter (funcall group 1))
+             (first (funcall group 2))
+             (cross-chapter (match-string 4 last-word))
+             (to-chapter (if cross-chapter (funcall group 3) chapter))
+             (to-verse (if cross-chapter (funcall group 4)
+                         (or (funcall group 3) first)))
+             (more (split-string (or (match-string 5 last-word) "") "," t)))
+        (list (string-join (butlast words) " ")
+              (cons (list chapter first to-chapter to-verse)
+                    (mapcar (lambda (item)
+                              (let ((range (mapcar #'string-to-number
+                                                   (split-string item "-"))))
+                                (list to-chapter (car range)
+                                      to-chapter (car (last range)))))
+                            more)))))))
+
+(defun rcf-sword--backwards-span (spans)
+  "Return the first of SPANS whose end comes before its start, or nil."
+  (seq-find (pcase-lambda (`(,from-chapter ,from-verse ,to-chapter ,to-verse))
+              (or (< to-chapter from-chapter)
+                  (and (= from-chapter to-chapter) from-verse to-verse
+                       (< to-verse from-verse))))
+            spans))
+
 (defun rcf-sword--reference-problem (str)
   "Return a message explaining what's wrong with the reference STR.
 Return nil if STR is well formed and names a known book.  This only
 checks the form of STR, not whether the database has the passage, so it
 can run without a database."
-  (let* ((words (split-string str rcf-sword--word-separators t))
+  (let* ((words (rcf-sword--reference-words str))
          (last-word (car (last words)))
          (book-str (string-join (butlast words) " "))
-         ;; (CHAPTER FIRST-VERSE LAST-VERSE), with nil for parts not given,
-         ;; or nil if LAST-WORD isn't a chapter and verses.
-         (numbers
-          (when (and last-word
-                     (string-match rcf-sword--chapter-verse-regexp last-word))
-            (mapcar (lambda (group)
-                      (let ((digits (match-string group last-word)))
-                        (and digits (not (string-empty-p digits))
-                             (string-to-number digits))))
-                    '(1 2 3)))))
-    (pcase-let ((`(,chapter ,first ,last) numbers))
+         (spans (cadr (rcf-sword--reference-spans str)))
+         ;; Every chapter and verse number given, for the zero check.
+         (numbers (flatten-tree spans)))
+    (pcase-let ((`(,from-chapter ,from-verse ,to-chapter ,to-verse)
+                 (rcf-sword--backwards-span spans)))
       (cond
        ((null words)
         "Type a reference, like \"John 3:16\", \"Gen 1\" or \"1 Cor 13:4-7\"")
@@ -521,15 +532,18 @@ can run without a database."
             (format "Add a chapter number, like \"%s 1\"" (nth 2 book))
           (rcf-sword--no-book-message last-word)))
        ((null numbers)
-        (format "Can't read \"%s\" as a chapter and verses; use a form like 3, 3:16 or 3:16-18"
+        (format "Can't read \"%s\" as a chapter and verses; use a form like 3, 3:16, 3:16-18, 3:16,18 or 3:16-4:2"
                 last-word))
        ((string-empty-p book-str)
         (format "Add a book name before \"%s\", like \"John %s\"" last-word last-word))
        ((memq 0 numbers)
         (format "Chapters and verses start at 1, so \"%s\" doesn't exist" last-word))
-       ((and first last (< last first))
-        (format "The verses in \"%s\" run backwards; did you mean %d:%d-%d?"
-                last-word chapter last first))
+       (from-chapter                    ; A span runs backwards.
+        (format "The verses in \"%s\" run backwards; did you mean %s?"
+                last-word
+                (if (= from-chapter to-chapter)
+                    (format "%d:%d-%d" from-chapter to-verse from-verse)
+                  (format "%d:%d-%d:%d" to-chapter to-verse from-chapter from-verse))))
        ((null (rcf-sword--find-book book-str))
         (rcf-sword--no-book-message book-str))))))
 
@@ -560,7 +574,7 @@ the chapter or the verse is what's missing."
   "Minibuffer history of references typed at rcf-sword prompts.")
 
 (defconst rcf-sword--reference-at-point-regexp
-  "[1-3]? ?[[:alpha:]]+ [0-9]+\\(?::[0-9]+\\(?:-[0-9]+\\)?\\)?"
+  "[1-3]? ?[[:alpha:]]+ [0-9]+\\(?:[:,-][0-9]+\\)*"
   "Match a reference like \"John 3:16\" or \"1 Cor 13:4-7\" in text.
 Only one-word book names, optionally numbered, are recognized, so that
 the words before a reference aren't mistaken for part of the book.
@@ -585,18 +599,34 @@ Offer the reference at point as the default, and keep a history in
     (read-string (format-prompt prompt default)
                  nil 'rcf-sword-reference-history default)))
 
+(defun rcf-sword--span-verses (book from-chapter from-verse to-chapter to-verse)
+  "Return BOOK's verses from FROM-CHAPTER:FROM-VERSE to TO-CHAPTER:TO-VERSE.
+A nil FROM-VERSE means the start of FROM-CHAPTER, and a nil TO-VERSE
+the end of TO-CHAPTER.  Positions are compared as CHAPTER*1000+VERSE,
+which orders them correctly across chapters (no chapter has 1000
+verses; the longest, Psalm 119, has 176)."
+  (rcf-sword--query
+   (concat "SELECT " rcf-sword--verse-columns " FROM Bible"
+           " WHERE Book=? AND Chapter*1000+Verse BETWEEN ? AND ?"
+           " ORDER BY Chapter, Verse;")
+   (list book
+         (+ (* from-chapter 1000) (or from-verse 0))
+         (+ (* to-chapter 1000) (or to-verse 999)))))
+
 (defun rcf-sword--lookup (str)
   "Return the verses described by the reference STR.
 Signal a `user-error' explaining the problem if STR is malformed (see
 `rcf-sword--reference-problem') or names a book, chapter or verses
 that aren't in the database.  A range that only partly exists, like
-verses 5-99 of a 10-verse chapter, returns the verses that do."
+verses 5-99 of a 10-verse chapter, returns the verses that do.  See
+`rcf-sword--reference-spans' for the forms STR can take."
   (when-let ((problem (rcf-sword--reference-problem str)))
     (user-error "%s" problem))
-  (pcase-let* ((`(,book-str ,chapter ,verses) (rcf-sword--parse-reference str))
+  (pcase-let* ((`(,book-str ,spans) (rcf-sword--reference-spans str))
                (book (rcf-sword--find-book book-str)))
-    (or (rcf-sword--verses (nth 1 book) chapter (car verses) (cadr verses))
-        (rcf-sword--missing-passage book chapter (car verses)))))
+    (or (mapcan (lambda (span) (apply #'rcf-sword--span-verses (nth 1 book) span))
+                spans)
+        (rcf-sword--missing-passage book (caar spans) (cadar spans)))))
 
 ;;;; Formatting
 
@@ -680,20 +710,49 @@ left at the end of the inserted text."
     (goto-char end)
     (set-marker end nil)))
 
+(defun rcf-sword--split-runs (verses follows)
+  "Split VERSES into groups, in one pass.
+A verse joins the current group if (FOLLOWS PREVIOUS-VERSE VERSE) is
+non-nil; otherwise it begins a new group.  Return the list of groups."
+  (let (runs)
+    (dolist (verse verses (nreverse (mapcar #'nreverse runs)))
+      (if (and runs (funcall follows (caar runs) verse))
+          (push verse (car runs))
+        (push (list verse) runs)))))
+
+(defun rcf-sword--verse-follows-p (previous verse)
+  "Return non-nil if VERSE comes right after PREVIOUS.
+That is, it's the next verse, or verse 1 of the next chapter.  Without
+chapter lengths this can't spot missing verses at the end of a chapter,
+but lookups never produce that: ranges return every verse in between,
+and lists stay within one chapter."
+  (pcase-let ((`(,_ ,previous-chapter ,previous-number . ,_) previous)
+              (`(,_ ,chapter ,number . ,_) verse))
+    (or (and (= chapter previous-chapter) (= number (1+ previous-number)))
+        (and (= chapter (1+ previous-chapter)) (= number 1)))))
+
 (defun rcf-sword--reference-string (verses)
-  "Return a reference like \"Galatians 1:1-24\" describing VERSES.
-VERSES must be non-empty and from a single chapter, as they are when
-looked up by `rcf-sword--lookup'."
-  (let* ((first-verse (car verses))
-         (last-verse (car (last verses)))
-         (first-num (nth 2 first-verse))
-         (last-num (nth 2 last-verse)))
-    (format "%s %d:%s"
-            (rcf-sword--book-name-from-number (nth 0 first-verse))
-            (nth 1 first-verse)
-            (if (equal first-num last-num)
-                first-num
-              (format "%d-%d" first-num last-num)))))
+  "Return a reference like \"Psalms 23:1-2, 4\" describing VERSES.
+Consecutive verses collapse into ranges, which may cross chapters, like
+\"John 3:16-4:2\".  A chapter is only repeated when it changes.
+VERSES must be non-empty and from one book."
+  (let (last-chapter)
+    (format "%s %s"
+            (rcf-sword--book-name-from-number (caar verses))
+            (mapconcat
+             (lambda (run)
+               (pcase-let ((`(,_ ,from-chapter ,from-verse . ,_) (car run))
+                           (`(,_ ,to-chapter ,to-verse . ,_) (car (last run))))
+                 (prog1 (concat (if (eql from-chapter last-chapter) ""
+                                  (format "%d:" from-chapter))
+                                (number-to-string from-verse)
+                                (cond ((null (cdr run)) "") ; A single verse.
+                                      ((= from-chapter to-chapter)
+                                       (format "-%d" to-verse))
+                                      (t (format "-%d:%d" to-chapter to-verse))))
+                   (setq last-chapter to-chapter))))
+             (rcf-sword--split-runs verses #'rcf-sword--verse-follows-p)
+             ", "))))
 
 (defun rcf-sword--insert-passage (verses)
   "Insert VERSES at point, formatted for the current major mode.
@@ -957,13 +1016,9 @@ TITLE if that is nil."
     (center-region start (point))))
 
 (defun rcf-sword--split-by-chapter (verses)
-  "Split VERSES, ordered by chapter, into one list of verses per chapter.
-Done in a single pass: a new group starts whenever the chapter changes."
-  (let (chapters)
-    (dolist (verse verses (nreverse (mapcar #'nreverse chapters)))
-      (if (eq (nth 1 verse) (nth 1 (caar chapters)))
-          (push verse (car chapters))
-        (push (list verse) chapters)))))
+  "Split VERSES, ordered by chapter, into one list of verses per chapter."
+  (rcf-sword--split-runs verses (lambda (previous verse)
+                                  (eql (nth 1 previous) (nth 1 verse)))))
 
 (defun rcf-sword--render-book (book-name verses)
   "Insert the book called BOOK-NAME made of VERSES into the current buffer.
@@ -1013,12 +1068,14 @@ Centers the text when olivetti is installed.  See
   ;; If the last word starts with a digit, BOOK is a reference like
   ;; "John 5:1"; check it like any other.  Otherwise it's just a name,
   ;; which may itself start with a number, like "1 John".
-  (pcase-let* ((`(,book-str ,chapter ,verses)
+  (pcase-let* ((`(,book-str ,chapter ,verse)
                 (if (string-match-p " [0-9][^ ]*\\'" (string-trim book))
                     (progn
                       (when-let ((problem (rcf-sword--reference-problem book)))
                         (user-error "%s" problem))
-                      (rcf-sword--parse-reference book))
+                      (pcase-let ((`(,book-str ((,chapter ,verse . ,_)))
+                                   (rcf-sword--reference-spans book)))
+                        (list book-str chapter verse)))
                   (list (string-trim book) nil nil)))
                (data (or (rcf-sword--find-book book-str)
                          (user-error "%s" (rcf-sword--no-book-message book))))
@@ -1041,9 +1098,9 @@ Centers the text when olivetti is installed.  See
             (rcf-sword-toggle-margins)))))
     (when chapter
       (with-current-buffer buffer-name
-        (or (rcf-sword--goto-verse chapter (car verses))
+        (or (rcf-sword--goto-verse chapter verse)
             ;; Say whether the chapter or the verse is missing.
-            (rcf-sword--missing-passage data chapter (car verses)))))
+            (rcf-sword--missing-passage data chapter verse))))
     (get-buffer buffer-name)))
 
 (provide 'rcf-sword)

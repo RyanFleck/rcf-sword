@@ -133,7 +133,8 @@ build from the `vX.Y.Z` release tags.
 | `rcf-sword-close-database`        | Close the database, e.g. after switching translations. |
 
 References accept partial or abbreviated book names: `Gen 3`, `1 Cor 13:4-7`,
-`Tim 2`. Common abbreviations work too (`Jn 3:16`, `Mt 5`, `Song of Songs 2`),
+`Tim 2`. Ranges can cross chapters (`John 3:16-4:2`), and you can list verses
+(`Ps 23:1, 4-6`). Common abbreviations work too (`Jn 3:16`, `Mt 5`, `Song of Songs 2`),
 and so do numbered books written as `I John`, `First John` or `1st Jn`. Add
 your own abbreviations with `rcf-sword-book-aliases`.
 

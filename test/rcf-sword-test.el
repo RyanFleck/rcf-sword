@@ -92,13 +92,34 @@
 (ert-deftest rcf-sword-test-book-numbers-are-sequential ()
   (should (equal (mapcar #'cadr rcf-sword-books) (number-sequence 1 66))))
 
-(ert-deftest rcf-sword-test-parse-reference ()
-  (should (equal (rcf-sword--parse-reference "Genesis 6") '("Genesis" 6 nil)))
-  (should (equal (rcf-sword--parse-reference "Genesis 6:1") '("Genesis" 6 (1))))
-  (should (equal (rcf-sword--parse-reference "Genesis 6:1-2") '("Genesis" 6 (1 2))))
-  (should (equal (rcf-sword--parse-reference "  1 Cor 13:4-7 ") '("1 Cor" 13 (4 7))))
-  (should (equal (rcf-sword--parse-reference "Song  of Solomon 2") '("Song of Solomon" 2 nil)))
-  (should (equal (rcf-sword--parse-reference "Jude") '("" 0 nil))))
+(ert-deftest rcf-sword-test-reference-spans ()
+  (pcase-dolist (`(,input ,parsed)
+                 '(("Genesis 6" ("Genesis" ((6 nil 6 nil))))
+                   ("Genesis 6:1" ("Genesis" ((6 1 6 1))))
+                   ("Genesis 6:1-2" ("Genesis" ((6 1 6 2))))
+                   ("  1 Cor 13:4-7 " ("1 Cor" ((13 4 13 7))))
+                   ("Song  of Solomon 2" ("Song of Solomon" ((2 nil 2 nil))))
+                   ;; Ranges across chapters.
+                   ("John 3:16-4:2" ("John" ((3 16 4 2))))
+                   ;; Lists, with or without spaces; they belong to the last
+                   ;; chapter named.
+                   ("Ps 23:1,4" ("Ps" ((23 1 23 1) (23 4 23 4))))
+                   ("Ps 23:1-2, 4-5,  6" ("Ps" ((23 1 23 2) (23 4 23 5) (23 6 23 6))))
+                   ("John 3:16-4:2,5" ("John" ((3 16 4 2) (4 5 4 5))))
+                   ;; Not a chapter and verses.
+                   ("Jude" nil) ("Ps 23:1-2-3" nil) ("Ps 23:1,,4" nil)))
+    (should (equal (cons input (rcf-sword--reference-spans input))
+                   (cons input parsed)))))
+
+(ert-deftest rcf-sword-test-reference-string ()
+  ;; Labels collapse consecutive verses, across chapters too.
+  (pcase-dolist (`(,verses ,label)
+                 '((((19 23 1)) "Psalms 23:1")
+                   (((19 23 1) (19 23 2) (19 23 3)) "Psalms 23:1-3")
+                   (((19 23 1) (19 23 2) (19 23 4)) "Psalms 23:1-2, 4")
+                   (((43 3 35) (43 3 36) (43 4 1) (43 4 2)) "John 3:35-4:2")
+                   (((19 1 1) (19 2 3)) "Psalms 1:1, 2:3")))
+    (should (equal (rcf-sword--reference-string verses) label))))
 
 (ert-deftest rcf-sword-test-split-by-chapter ()
   (should (equal (rcf-sword--split-by-chapter
@@ -169,25 +190,24 @@
   ;; `split-string' with OMIT-NULLS replaced `s-trim' and `s-split'.
   ;; Outer whitespace of any kind is ignored, and runs of spaces between
   ;; words collapse.
-  (should (equal (rcf-sword--parse-reference " \t1 Cor 13:4-7\r\n ")
-                 '("1 Cor" 13 (4 7))))
-  (should (equal (rcf-sword--parse-reference "1   Cor   13")
-                 '("1 Cor" 13 nil)))
+  (should (equal (car (rcf-sword--reference-spans " \t1 Cor 13:4-7\r\n "))
+                 "1 Cor"))
+  (should (equal (car (rcf-sword--reference-spans "1   Cor   13")) "1 Cor"))
   ;; `string-join' replaced `s-join': book words rejoin with single spaces.
-  (should (equal (rcf-sword--parse-reference "Song  of   Solomon 2:1")
-                 '("Song of Solomon" 2 (1))))
+  (should (equal (car (rcf-sword--reference-spans "Song  of   Solomon 2:1"))
+                 "Song of Solomon"))
   ;; Since 0.2.2, tabs, newlines and non-breaking spaces separate words
   ;; too.  (With s.el only spaces did, so "Ps\t23" was one word.)
-  (should (equal (rcf-sword--parse-reference "Ps\t23") '("Ps" 23 nil)))
-  (should (equal (rcf-sword--parse-reference "1\u00a0Cor\n13:4") '("1 Cor" 13 (4)))))
+  (should (equal (rcf-sword--reference-spans "Ps\t23") '("Ps" ((23 nil 23 nil)))))
+  (should (equal (rcf-sword--reference-spans "1\u00a0Cor\n13:4") '("1 Cor" ((13 4 13 4))))))
 
 (ert-deftest rcf-sword-test-strings-parse-verse-ranges ()
-  ;; `split-string' on ":" (keeping empty parts) and on "-" (omitting
-  ;; them) replaced `s-split'.
-  (should (equal (rcf-sword--parse-reference "Ps 23:") '("Ps" 23 nil)))
-  (should (equal (rcf-sword--parse-reference "Ps 23:1-") '("Ps" 23 (1))))
-  (should (equal (rcf-sword--parse-reference "Ps 23:1-2-3") '("Ps" 23 (1 2 3))))
-  (should (equal (rcf-sword--parse-reference "Ps :1") '("Ps" 0 (1)))))
+  ;; A trailing colon or dash is forgiven: "Ps 23:" is the whole chapter
+  ;; and "Ps 23:1-" is verse 1.  (Since 0.3.0 a regexp parses these.)
+  (should (equal (rcf-sword--reference-spans "Ps 23:") '("Ps" ((23 nil 23 nil)))))
+  (should (equal (rcf-sword--reference-spans "Ps 23:1-") '("Ps" ((23 1 23 1)))))
+  (should-not (rcf-sword--reference-spans "Ps 23:1-2-3"))
+  (should-not (rcf-sword--reference-spans "Ps :1")))
 
 (ert-deftest rcf-sword-test-strings-blank-reference ()
   ;; A blank reference is rejected, with a friendly message since 0.2.2.
@@ -246,21 +266,25 @@
          ("John3:16" "Put a space before the chapter, like \"John 3:16\"")
          ("1 John3" "Put a space before the chapter, like \"1 John 3\"")
          ("3:16" "Add a book name before \"3:16\", like \"John 3:16\"")
-         ("Ps abc" "Can't read \"abc\" as a chapter and verses; use a form like 3, 3:16 or 3:16-18")
-         ("Ps 23:a" "Can't read \"23:a\" as a chapter and verses; use a form like 3, 3:16 or 3:16-18")
-         ("Ps 23:1-2-3" "Can't read \"23:1-2-3\" as a chapter and verses; use a form like 3, 3:16 or 3:16-18")
-         ("Ps 23::1" "Can't read \"23::1\" as a chapter and verses; use a form like 3, 3:16 or 3:16-18")
-         ("Ps :1" "Can't read \":1\" as a chapter and verses; use a form like 3, 3:16 or 3:16-18")
-         ("Ps -1" "Can't read \"-1\" as a chapter and verses; use a form like 3, 3:16 or 3:16-18")
+         ("Ps abc" "Can't read \"abc\" as a chapter and verses; use a form like 3, 3:16, 3:16-18, 3:16,18 or 3:16-4:2")
+         ("Ps 23:a" "Can't read \"23:a\" as a chapter and verses; use a form like 3, 3:16, 3:16-18, 3:16,18 or 3:16-4:2")
+         ("Ps 23:1-2-3" "Can't read \"23:1-2-3\" as a chapter and verses; use a form like 3, 3:16, 3:16-18, 3:16,18 or 3:16-4:2")
+         ("Ps 23::1" "Can't read \"23::1\" as a chapter and verses; use a form like 3, 3:16, 3:16-18, 3:16,18 or 3:16-4:2")
+         ("Ps :1" "Can't read \":1\" as a chapter and verses; use a form like 3, 3:16, 3:16-18, 3:16,18 or 3:16-4:2")
+         ("Ps -1" "Can't read \"-1\" as a chapter and verses; use a form like 3, 3:16, 3:16-18, 3:16,18 or 3:16-4:2")
          ("Ps 0" "Chapters and verses start at 1, so \"0\" doesn't exist")
          ("Ps 23:0" "Chapters and verses start at 1, so \"23:0\" doesn't exist")
-         ("Ps 23:5-2" "The verses in \"23:5-2\" run backwards; did you mean 23:2-5?")))
+         ("Ps 23:5-2" "The verses in \"23:5-2\" run backwards; did you mean 23:2-5?")
+         ("John 4:2-3:16" "The verses in \"4:2-3:16\" run backwards; did you mean 3:16-4:2?")
+         ("Ps 23:1,5-2" "The verses in \"23:1,5-2\" run backwards; did you mean 23:2-5?")
+         ("Ps 23:1,0" "Chapters and verses start at 1, so \"23:1,0\" doesn't exist")))
     (should (equal (cons input (rcf-sword--reference-problem input))
                    (cons input message)))))
 
 (ert-deftest rcf-sword-test-reference-problems-accepts-valid ()
   ;; Well-formed references pass, including the forgiving forms.
   (dolist (input '("Ps 23" "Ps 23:" "Ps 23:1" "Ps 23:1-" "Ps 23:1-2"
+                   "John 3:16-4:2" "Ps 23:1,3" "Ps 23:1, 3"
                    " 1 Cor 13:4-7 " "Song of Solomon 2" "Ps\t23" "gen 1"))
     (should (equal (cons input (rcf-sword--reference-problem input))
                    (list input)))))
@@ -384,6 +408,26 @@
                              "> -- [Psalms 23:1-2 KJV](https://www.biblegateway.com/passage/"
                              "?search=Psalms%2023%3A1-2&version=KJV)"))))))
 
+(ert-deftest rcf-sword-test-more-reference-forms ()
+  (rcf-sword-test--with-db
+    ;; A range across chapters, and a list; the label describes the result.
+    (should (equal (mapcar (lambda (verse) (seq-take verse 3))
+                           (rcf-sword--lookup "Ps 2:1-23:2"))
+                   '((19 2 1) (19 23 1) (19 23 2))))
+    (should (equal (mapcar #'cl-caddr (rcf-sword--lookup "Ps 23:1, 3")) '(1 3)))
+    (with-temp-buffer
+      (rcf-sword-insert-verse "Ps 23:1,3")
+      (should (string-suffix-p " -- Psalms 23:1, 3 KJV" (buffer-string))))
+    ;; Listed verses that don't exist are skipped, like partial ranges.
+    (should (equal (mapcar #'cl-caddr (rcf-sword--lookup "Ps 23:3,9")) '(3)))
+    ;; The reference at point understands the new forms.
+    (with-temp-buffer
+      (insert "See Ps 23:1,3 and John 3:16-4:2.")
+      (goto-char 6)
+      (should (equal (rcf-sword--reference-at-point) "Ps 23:1,3"))
+      (search-forward "John")
+      (should (equal (rcf-sword--reference-at-point) "John 3:16-4:2")))))
+
 (ert-deftest rcf-sword-test-missing-passages ()
   ;; Well-formed references that aren't in the database say what's
   ;; missing.  The fixture has Genesis 1, Psalms 23 and Proverbs 1.
@@ -470,7 +514,7 @@
   (rcf-sword-test--with-db
     (with-temp-buffer
       ;; A book missing from `rcf-sword-books' still gets a label.
-      (rcf-sword--insert-passage (rcf-sword--verses 67 1 1))
+      (rcf-sword--insert-passage (rcf-sword--span-verses 67 1 1 1 1))
       (should (string-suffix-p " -- Book 67 1:1 KJV" (buffer-string)))
       ;; Adding it to the list makes it a normal book.
       (let ((rcf-sword-books (append rcf-sword-books '((3 67 "Tobit")))))
