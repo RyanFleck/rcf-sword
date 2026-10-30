@@ -29,7 +29,10 @@
     (19 23 1 " The LORD is my shepherd; I shall not want.")
     (19 23 2 " He maketh me to lie down in green pastures: he leadeth me beside the still waters.")
     (19 23 3 " He restoreth my soul: he leadeth me in the paths of righteousness for his name's sake.")
-    (20 1 1 " The proverbs of Solomon the son of David, king of Israel;"))
+    (20 1 1 " The proverbs of Solomon the son of David, king of Israel;")
+    ;; Book 67 isn't in the default `rcf-sword-books', like an apocryphal
+    ;; book in some modules.
+    (67 1 1 " The book of the words of Tobit."))
   "Verses inserted into the fixture database.")
 
 (defmacro rcf-sword-test--with-db (&rest body)
@@ -462,6 +465,33 @@
     (dotimes (_ 20)
       (should (= (caar (rcf-sword--random-verse 19)) 19)))
     (should-not (rcf-sword--random-verse 40))))
+
+(ert-deftest rcf-sword-test-other-canons-and-languages ()
+  (rcf-sword-test--with-db
+    (with-temp-buffer
+      ;; A book missing from `rcf-sword-books' still gets a label.
+      (rcf-sword--insert-passage (rcf-sword--verses 67 1 1))
+      (should (string-suffix-p " -- Book 67 1:1 KJV" (buffer-string)))
+      ;; Adding it to the list makes it a normal book.
+      (let ((rcf-sword-books (append rcf-sword-books '((3 67 "Tobit")))))
+        (erase-buffer)
+        (rcf-sword-insert-verse "Tob 1:1")
+        (should (string-suffix-p " -- Tobit 1:1 KJV" (buffer-string))))
+      ;; Renamed books are matched and labelled by their new names, and
+      ;; the random proverb doesn't depend on the English name.
+      (let ((rcf-sword-books
+             (mapcar (lambda (book)
+                       (pcase (nth 1 book)
+                         (19 '(1 19 "Psalmen"))
+                         (20 '(1 20 "Sprüche"))
+                         (_ book)))
+                     rcf-sword-books)))
+        (erase-buffer)
+        (rcf-sword-insert-verse "Psalmen 23:1")
+        (should (string-suffix-p " -- Psalmen 23:1 KJV" (buffer-string)))
+        (erase-buffer)
+        (rcf-sword-insert-random-proverb)
+        (should (string-suffix-p " -- Sprüche 1:1 KJV" (buffer-string)))))))
 
 (ert-deftest rcf-sword-test-random ()
   (rcf-sword-test--with-db

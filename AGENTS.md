@@ -127,6 +127,8 @@ Or just run `make` to run all four.
   never `select *`.
 - Book numbering follows the 66-book Protestant canon in
   `rcf-sword-books`. Each element is a `(TESTAMENT NUMBER NAME)` triple.
+  It's a user option (for other languages and canons), so refer to books
+  by number in code, never by English name.
 - Keep functions small and pure where possible (parsing, formatting), so they
   can be unit-tested without a database.
 - Behaviour that differs by major mode uses `derived-mode-p`. Don't

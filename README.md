@@ -173,6 +173,8 @@ movement keys scroll the text. The keys are:
 | `rcf-sword-bblx-file`         | `nil`   | Path to your `.bblx` file. **Required.**        |
 | `rcf-sword-md-link-reference` | `nil`   | Link the Markdown attribution to Bible Gateway. |
 | `rcf-sword-md-use-footnotes`  | `nil`   | Add a Markdown footnote linking to the passage. |
+| `rcf-sword-books`             | 66 books | Book numbers and names. Rename them for another language, or add books such as the Apocrypha. |
+| `rcf-sword-book-aliases`      | common abbreviations | Extra abbreviations, like `Jn` for John. |
 | `rcf-sword-insert-verse-numbers` | `nil` | Show verse numbers (¹²³) in inserted passages. `C-u` flips it for one insertion. |
 | `rcf-sword-reader-width`      | `72`    | Body width for centered reading.                |
 

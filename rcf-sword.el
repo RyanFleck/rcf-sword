@@ -137,9 +137,8 @@ Only takes effect when olivetti is installed."
 ;;;; Book data
 
 ;; The 66-book Protestant canon, in the order e-Sword numbers books.
-;; Sorry to those who use more than 66 books - you'll have to hack this
-;; for yourself.
-(defconst rcf-sword-books
+;; It's a user option, so other canons and languages can adjust it.
+(defcustom rcf-sword-books
   '(;; THE OLD TESTAMENT
     ;; The Law
     (1 1 "Genesis")
@@ -222,7 +221,16 @@ Only takes effect when olivetti is installed."
   "Books of the Bible as (TESTAMENT NUMBER NAME) triples.
 TESTAMENT is 1 for the Old Testament and 2 for the New.  NUMBER
 matches the Book column of the .bblx database.  NAME is used both
-to match what the user types and to label inserted passages.")
+to match what the user types and to label inserted passages.
+
+The default is the 66-book Protestant canon in English.  To use
+another language, change the names.  To add books, such as the
+Apocrypha, add triples with the numbers your module uses; list them
+with sqlite3: SELECT DISTINCT Book FROM Bible WHERE Book > 66;
+A book missing from this list is shown as \"Book N\"."
+  :type '(repeat (list (integer :tag "Testament")
+                       (integer :tag "Number")
+                       (string :tag "Name"))))
 
 (defun rcf-sword--book-names ()
   "Return the names of all books in `rcf-sword-books'."
@@ -285,9 +293,12 @@ finds Joshua, \"tim\" finds 1 Timothy and \"I Jn\" finds 1 John."
   (nth 1 (rcf-sword--find-book partial)))
 
 (defun rcf-sword--book-name-from-number (number)
-  "Return the name of book NUMBER, or nil if there is no such book."
-  (nth 2 (seq-find (lambda (book) (equal (nth 1 book) number))
-                   rcf-sword-books)))
+  "Return the name of book NUMBER, or \"Book NUMBER\" if it isn't listed.
+Modules can contain books missing from `rcf-sword-books', such as the
+Apocrypha, so they still get a usable label."
+  (or (nth 2 (seq-find (lambda (book) (equal (nth 1 book) number))
+                       rcf-sword-books))
+      (format "Book %d" number)))
 
 ;;;; Database
 
@@ -779,7 +790,8 @@ to paste into an email or chat.  Arguments are as for
   "Insert a random verse from Proverbs at point."
   (interactive)
   (rcf-sword--insert-passage
-   (rcf-sword--random-verse (rcf-sword--book-number "Proverbs"))))
+   ;; By number, not name, so it works when the books are renamed.
+   (rcf-sword--random-verse 20)))
 
 ;;;; Book reader
 
